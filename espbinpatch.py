@@ -48,7 +48,7 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 IMAGE_MAGIC = 0xE9
 CHECKSUM_INIT = 0xEF
