@@ -2,7 +2,7 @@
 [![GitHub release](https://img.shields.io/github/v/release/sagdusmir/ESP-bin-patch?style=flat-square&logo=github&color=blue)](https://github.com/sagdusmir/ESP-bin-patch/releases/latest)
 [![GitHub Release Date](https://img.shields.io/github/release-date/sagdusmir/ESP-bin-patch?style=flat-square&logo=github&color=blue)](https://github.com/sagdusmir/ESP-bin-patch/releases)
 [![GitHub commit activity (branch)](https://img.shields.io/github/commit-activity/t/sagdusmir/ESP-bin-patch/main?style=flat-square&logo=github&color=blue)](https://github.com/sagdusmir/ESP-bin-patch/commits/main/)
-![GitHub license](https://img.shields.io/github/license/sagdusmir/ESP-bin-patch?style=flat-square&logo=gnu&color=green)
+![GitHub license](https://img.shields.io/github/license/sagdusmir/ESP-bin-patch?style=flat-square&logo=gnu&color=green&ts=5)
 
 `espbinpatch` replaces bytes in a compiled ESPHome / ESP-IDF firmware image and repairs the XOR checksum and SHA-256 so the device will still boot.
 
