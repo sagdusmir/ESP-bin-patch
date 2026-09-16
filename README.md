@@ -15,9 +15,10 @@ Focus: **patch secrets in an already-built `.bin`** (Wi-Fi SSID, Home Assistant 
 1. [Features](#features)
 2. [Encodings](#encodings)
 3. [Usage](#usage)
-4. [Examples](#examples)
-5. [Limitations](#limitations)
-6. [Disclaimer](#disclaimer)
+4. [Web demo](#web-demo)
+5. [Examples](#examples)
+6. [Limitations](#limitations)
+7. [Disclaimer](#disclaimer)
 
 ## Features
 
@@ -66,6 +67,28 @@ python3 espbinpatch.py firmware.bin --verify
 Pass `-o OUTPUT` or `--in-place` to write. `--dry-run` prints hits and repairs without writing.
 
 When `--new` is shorter than `--old`, leftover bytes are padded. `--pad` is a hex byte (`00` default; `20` for ASCII space).
+
+## Web demo
+
+[`docs/index.html`](docs/index.html) is a static page that ports this patcher to JavaScript and can **install the patched image over USB** with [ESP Web Tools](https://esphome.github.io/esp-web-tools/).
+
+- Runs in the browser only — the `.bin` is never uploaded to a server
+- Several replacements, each with mode **auto / utf-8 / hex / base64**
+- Errors (missing needle, invalid hex/base64, replacement too long, …) are shown on the page
+- **Web Install** needs a merged `firmware.factory.bin`. An app-only `firmware.bin` can still be patched and downloaded.
+
+Serve it over **HTTPS** (GitHub Pages) or localhost, in Chrome or Edge:
+
+1. Repo **Settings → Pages → Deploy from a branch → `/docs`**
+2. Open `https://<user>.github.io/ESP-bin-patch/index.html`
+
+Locally:
+
+```bash
+python3 -m http.server --directory docs 8000
+```
+
+Then open `http://localhost:8000/index.html` and use **Run self-test**.
 
 ## Examples
 

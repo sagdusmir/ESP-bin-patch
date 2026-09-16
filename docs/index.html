@@ -1,0 +1,1177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ESP Bin Patch — Web demo</title>
+  <script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
+  <style>
+    :root {
+      --fg: #1a1a1a;
+      --muted: #555;
+      --border: #ccc;
+      --bg: #fafafa;
+      --err: #8b1a1a;
+      --err-bg: #fdeeee;
+      --ok: #1a5c2e;
+      --ok-bg: #eef8f1;
+      --warn: #7a5b00;
+      --warn-bg: #fff6db;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0 auto;
+      max-width: 52rem;
+      padding: 1.5rem 1rem 4rem;
+      font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      color: var(--fg);
+      background: #fff;
+    }
+    h1 { font-size: 1.6rem; margin: 0 0 0.4rem; }
+    h2 { font-size: 1.15rem; margin: 1.75rem 0 0.6rem; }
+    p.lead { color: var(--muted); margin-top: 0; }
+    code, kbd { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.9em; }
+    label { display: block; font-weight: 600; margin: 0.6rem 0 0.25rem; }
+    input[type="text"], input[type="file"], select {
+      width: 100%;
+      padding: 0.4rem 0.5rem;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      font: inherit;
+    }
+    .row {
+      display: grid;
+      grid-template-columns: 1fr 1fr 8.5rem auto;
+      gap: 0.5rem;
+      align-items: end;
+      margin-bottom: 0.5rem;
+    }
+    @media (max-width: 700px) {
+      .row { grid-template-columns: 1fr; }
+    }
+    .row label { margin-top: 0; }
+    button, .btn {
+      font: inherit;
+      font-weight: 600;
+      padding: 0.45rem 0.85rem;
+      border-radius: 4px;
+      border: 1px solid #333;
+      background: #222;
+      color: #fff;
+      cursor: pointer;
+    }
+    button.secondary {
+      background: #fff;
+      color: #222;
+    }
+    button:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+    .actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 1rem; }
+    .box {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 0.75rem 1rem;
+      font-size: 0.95rem;
+    }
+    .box pre { margin: 0.4rem 0 0; white-space: pre-wrap; word-break: break-word; }
+    .status { margin: 1rem 0; padding: 0.75rem 1rem; border-radius: 6px; }
+    .status.error { background: var(--err-bg); color: var(--err); }
+    .status.ok { background: var(--ok-bg); color: var(--ok); }
+    .status.warn { background: var(--warn-bg); color: var(--warn); }
+    .muted { color: var(--muted); font-size: 0.92rem; }
+    .hint { color: var(--muted); font-weight: 400; font-size: 0.85rem; }
+    footer { margin-top: 2.5rem; color: var(--muted); font-size: 0.9rem; }
+    esp-web-install-button { display: inline-block; }
+    esp-web-install-button button { font: inherit; }
+  </style>
+</head>
+<body>
+  <h1>ESP Bin Patch</h1>
+  <p class="lead">
+    Patch secrets in an already-built <code>.bin</code>, repair ESP-IDF checksums,
+    then install over USB with <strong>ESP Web Tools</strong>.
+    Runs entirely in the browser — the firmware is not uploaded anywhere.
+  </p>
+
+  <h2>1. Firmware file</h2>
+  <label for="file">Merged <code>firmware.factory.bin</code> (needed for Web Install)</label>
+  <input id="file" type="file" accept=".bin,application/octet-stream">
+  <p class="muted">
+    An app-only <code>firmware.bin</code> can still be patched and downloaded,
+    but cannot be web-installed (that would overwrite the bootloader).
+  </p>
+  <div id="file-info" class="box" hidden></div>
+
+  <h2>2. Replacements</h2>
+  <p class="muted">
+    <strong>auto</strong> tries UTF-8 text vs decoded Base64 (Home Assistant API key).
+    <strong>utf-8</strong> is literal text (SSID).
+    <strong>hex</strong> and <strong>base64</strong> decode first.
+    Replacement must be the same length or shorter.
+  </p>
+  <div id="replacements"></div>
+  <div class="actions">
+    <button type="button" class="secondary" id="add-row">Add replacement</button>
+  </div>
+  <label for="pad">Pad byte (hex) for leftover space when new is shorter</label>
+  <input id="pad" type="text" value="00" maxlength="4" style="max-width: 6rem">
+
+  <h2>3. Chip family</h2>
+  <p class="muted">Must match the board you will flash. Detected from the image header; override if needed.</p>
+  <label for="chip">ESP Web Tools chip family</label>
+  <select id="chip"></select>
+
+  <div class="actions">
+    <button type="button" id="patch">Patch firmware</button>
+    <button type="button" class="secondary" id="download" disabled>Download patched .bin</button>
+    <button type="button" class="secondary" id="self-test">Run self-test</button>
+  </div>
+
+  <div id="status" class="status" hidden></div>
+  <div id="result" class="box" hidden></div>
+
+  <h2>4. Install</h2>
+  <p class="muted">
+    Chrome or Edge, over <strong>HTTPS</strong> (or localhost). Connect the board via USB,
+    then install the <em>patched</em> image.
+  </p>
+  <esp-web-install-button id="install">
+    <button slot="activate" id="install-activate" disabled>Install patched firmware</button>
+    <span slot="unsupported">This browser does not support Web Serial. Open this page in Chrome or Edge.</span>
+    <span slot="not-allowed">Web Serial requires HTTPS (GitHub Pages) or localhost.</span>
+  </esp-web-install-button>
+  <p id="install-hint" class="hint"></p>
+
+  <footer>
+    Third-party tooling, not affiliated with Espressif, ESPHome, or Home Assistant.
+    Flashing patched firmware is at your own risk.
+    <a href="https://github.com/sagdusmir/ESP-bin-patch">Source</a>
+  </footer>
+
+  <template id="row-template">
+    <div class="row">
+      <div>
+        <label>Old</label>
+        <input type="text" class="old" placeholder="value to find" autocomplete="off">
+      </div>
+      <div>
+        <label>New</label>
+        <input type="text" class="new" placeholder="replacement" autocomplete="off">
+      </div>
+      <div>
+        <label>Mode</label>
+        <select class="mode">
+          <option value="auto">auto</option>
+          <option value="utf-8">utf-8</option>
+          <option value="hex">hex</option>
+          <option value="base64">base64</option>
+        </select>
+      </div>
+      <div>
+        <button type="button" class="secondary remove">Remove</button>
+      </div>
+    </div>
+  </template>
+
+  <script type="module">
+    /* inlined port of espbinpatch.py */
+    /**
+     * Browser port of espbinpatch.py: in-place firmware replace + ESP-IDF checksum repair.
+     */
+
+    const VERSION = "0.1.2";
+
+    const IMAGE_MAGIC = 0xe9;
+    const CHECKSUM_INIT = 0xef;
+    const HEADER_SIZE = 24;
+    const HASH_APPENDED_OFFSET = 23;
+    const MAX_SEGMENTS = 16;
+    const MAX_SEGMENT_LEN = 16 * 1024 * 1024;
+    const PARTITION_TABLE_OFFSETS = [0x8000, 0x9000];
+    const PARTITION_ENTRY_SIZE = 32;
+    const PARTITION_MAGIC = 0x50aa;
+    const PARTITION_MAGIC_MD5 = 0xebeb;
+    const PARTITION_TYPE_APP = 0x00;
+    const BOOTLOADER_CANDIDATES = [0x0, 0x1000];
+
+    /** ESP-IDF chip_id (uint16 LE at header + 12) → ESP Web Tools chipFamily. */
+    const CHIP_ID_TO_FAMILY = {
+      0x0000: "ESP32",
+      0x0002: "ESP32-S2",
+      0x0005: "ESP32-C3",
+      0x0009: "ESP32-S3",
+      0x000c: "ESP32-C2",
+      0x000d: "ESP32-C6",
+      0x0010: "ESP32-H2",
+      0x0012: "ESP32-P4",
+      0x0013: "ESP32-C61",
+      0x0017: "ESP32-C5",
+    };
+
+    const CHIP_FAMILIES = [
+      "ESP8266",
+      "ESP32",
+      "ESP32-C2",
+      "ESP32-C3",
+      "ESP32-C5",
+      "ESP32-C6",
+      "ESP32-C61",
+      "ESP32-H2",
+      "ESP32-P4",
+      "ESP32-S2",
+      "ESP32-S3",
+    ];
+
+    class PatchError extends Error {
+      constructor(code, message, extra = {}) {
+        super(message);
+        this.name = "PatchError";
+        this.code = code;
+        Object.assign(this, extra);
+      }
+    }
+
+    function u8(data, offset) {
+      return data[offset];
+    }
+
+    function u16(data, offset) {
+      return data[offset] | (data[offset + 1] << 8);
+    }
+
+    function u32(data, offset) {
+      return (
+        (data[offset] |
+          (data[offset + 1] << 8) |
+          (data[offset + 2] << 16) |
+          (data[offset + 3] << 24)) >>>
+        0
+      );
+    }
+
+    function bytesEqual(a, b) {
+      if (a.length !== b.length) return false;
+      for (let i = 0; i < a.length; i++) {
+        if (a[i] !== b[i]) return false;
+      }
+      return true;
+    }
+
+    function findBytes(haystack, needle, start = 0) {
+      if (!needle.length) return -1;
+      const last = haystack.length - needle.length;
+      outer: for (let i = start; i <= last; i++) {
+        for (let j = 0; j < needle.length; j++) {
+          if (haystack[i + j] !== needle[j]) continue outer;
+        }
+        return i;
+      }
+      return -1;
+    }
+
+    function findOffsets(data, needle) {
+      const hits = [];
+      if (!needle.length) return hits;
+      let start = 0;
+      while (true) {
+        const index = findBytes(data, needle, start);
+        if (index < 0) return hits;
+        hits.push(index);
+        start = index + needle.length;
+      }
+    }
+
+    function parseEspImage(data, offset) {
+      if (offset < 0 || offset + HEADER_SIZE > data.length) return null;
+      if (u8(data, offset) !== IMAGE_MAGIC) return null;
+
+      const segmentCount = u8(data, offset + 1);
+      if (segmentCount < 1 || segmentCount > MAX_SEGMENTS) return null;
+
+      const hashAppended = u8(data, offset + HASH_APPENDED_OFFSET) === 1;
+      let cursor = offset + HEADER_SIZE;
+      const segments = [];
+
+      for (let i = 0; i < segmentCount; i++) {
+        if (cursor + 8 > data.length) return null;
+        const length = u32(data, cursor + 4);
+        if (length === 0 || length > MAX_SEGMENT_LEN) return null;
+        const dataOffset = cursor + 8;
+        if (dataOffset + length > data.length) return null;
+        segments.push({ dataOffset, length });
+        cursor = dataOffset + length;
+      }
+
+      const padding = 15 - (cursor % 16);
+      const checksumOffset = cursor + padding;
+      if (checksumOffset >= data.length) return null;
+
+      let shaOffset = null;
+      let endOffset = checksumOffset + 1;
+      if (hashAppended) {
+        shaOffset = endOffset;
+        endOffset += 32;
+        if (endOffset > data.length) return null;
+      }
+
+      return {
+        offset,
+        segmentCount,
+        hashAppended,
+        segments,
+        checksumOffset,
+        shaOffset,
+        endOffset,
+      };
+    }
+
+    function xorChecksum(data, image) {
+      let state = CHECKSUM_INIT;
+      for (const segment of image.segments) {
+        const end = segment.dataOffset + segment.length;
+        for (let i = segment.dataOffset; i < end; i++) {
+          state ^= data[i];
+        }
+      }
+      return state & 0xff;
+    }
+
+    async function sha256(bytes) {
+      const digest = await crypto.subtle.digest("SHA-256", bytes);
+      return new Uint8Array(digest);
+    }
+
+    async function imageDigest(data, image) {
+      return sha256(data.slice(image.offset, image.checksumOffset + 1));
+    }
+
+    async function imageChecksumOk(data, image) {
+      if (data[image.checksumOffset] !== xorChecksum(data, image)) return false;
+      if (image.shaOffset !== null) {
+        const digest = await imageDigest(data, image);
+        const stored = data.slice(image.shaOffset, image.shaOffset + 32);
+        if (!bytesEqual(digest, stored)) return false;
+      }
+      return true;
+    }
+
+    async function repairImage(buf, image) {
+      buf[image.checksumOffset] = xorChecksum(buf, image);
+      if (image.shaOffset !== null) {
+        const digest = await imageDigest(buf, image);
+        buf.set(digest, image.shaOffset);
+      }
+    }
+
+    function parsePartitionTable(data, tableOffset) {
+      if (tableOffset + PARTITION_ENTRY_SIZE > data.length) return [];
+      const firstMagic = u16(data, tableOffset);
+      if (firstMagic !== PARTITION_MAGIC && firstMagic !== PARTITION_MAGIC_MD5) {
+        return [];
+      }
+
+      const apps = [];
+      for (let index = 0; index < 95; index++) {
+        const entry = tableOffset + index * PARTITION_ENTRY_SIZE;
+        if (entry + PARTITION_ENTRY_SIZE > data.length) break;
+        const magic = u16(data, entry);
+        if (magic === 0xffff || magic === 0x0000) break;
+        if (magic === PARTITION_MAGIC_MD5) break;
+        if (magic !== PARTITION_MAGIC) return [];
+        const partType = u8(data, entry + 2);
+        const offset = u32(data, entry + 4);
+        const size = u32(data, entry + 8);
+        let label = "";
+        for (let i = 12; i < 28; i++) {
+          const ch = data[entry + i];
+          if (ch === 0) break;
+          label += String.fromCharCode(ch);
+        }
+        if (partType === PARTITION_TYPE_APP && size > 0) {
+          apps.push({ offset, size, label: label || `app@0x${offset.toString(16)}` });
+        }
+      }
+      return apps;
+    }
+
+    function findImages(data) {
+      const found = new Map();
+
+      const consider = (offset) => {
+        if (found.has(offset)) return;
+        const image = parseEspImage(data, offset);
+        if (image) found.set(offset, image);
+      };
+
+      for (const offset of BOOTLOADER_CANDIDATES) consider(offset);
+
+      for (const tableOffset of PARTITION_TABLE_OFFSETS) {
+        for (const app of parsePartitionTable(data, tableOffset)) {
+          consider(app.offset);
+        }
+      }
+
+      if (found.size === 0) {
+        const limit = Math.min(data.length, 2 * 1024 * 1024);
+        for (let offset = 0; offset < limit; offset += 0x1000) {
+          consider(offset);
+        }
+      }
+
+      return [...found.keys()].sort((a, b) => a - b).map((key) => found.get(key));
+    }
+
+    function chipFamilyFromImage(data, image) {
+      if (!image || image.offset + 14 > data.length) return null;
+      const id = u16(data, image.offset + 12);
+      return CHIP_ID_TO_FAMILY[id] || null;
+    }
+
+    async function describeFirmware(data) {
+      const images = findImages(data);
+      let partitionApps = [];
+      for (const tableOffset of PARTITION_TABLE_OFFSETS) {
+        const apps = parsePartitionTable(data, tableOffset);
+        if (apps.length) {
+          partitionApps = apps;
+          break;
+        }
+      }
+      const hasBootloader = images.some((img) => img.offset === 0 || img.offset === 0x1000);
+      const appOffsets = new Set(partitionApps.map((app) => app.offset));
+      const hasAppImage = images.some((img) => appOffsets.has(img.offset) || img.offset >= 0x10000);
+      const isMergedFactory = hasBootloader && partitionApps.length > 0 && hasAppImage;
+
+      const listed = [];
+      for (const image of images) {
+        listed.push({
+          offset: image.offset,
+          segmentCount: image.segmentCount,
+          checksumOffset: image.checksumOffset,
+          shaOffset: image.shaOffset,
+          endOffset: image.endOffset,
+          ok: await imageChecksumOk(data, image),
+          chipFamily: chipFamilyFromImage(data, image),
+        });
+      }
+
+      const chipFamily = listed.map((img) => img.chipFamily).find(Boolean) || null;
+
+      return {
+        images: listed,
+        chipFamily,
+        isMergedFactory,
+        partitionApps,
+      };
+    }
+
+    function paddedReplacement(oldBytes, newBytes, pad = 0x00) {
+      if (!oldBytes.length) {
+        throw new PatchError("EMPTY_NEEDLE", "replacement needle must not be empty");
+      }
+      if (pad < 0 || pad > 255) {
+        throw new PatchError("INVALID_PAD", `pad byte must be 0..255, got ${pad}`);
+      }
+      if (newBytes.length > oldBytes.length) {
+        throw new PatchError(
+          "REPLACEMENT_TOO_LONG",
+          `replacement must be at most as long as the needle (old=${oldBytes.length} bytes, new=${newBytes.length} bytes)`,
+        );
+      }
+      const out = new Uint8Array(oldBytes.length);
+      out.set(newBytes, 0);
+      out.fill(pad, newBytes.length);
+      return out;
+    }
+
+    function replaceBytes(buf, oldBytes, newBytes, pad = 0x00) {
+      const patched = paddedReplacement(oldBytes, newBytes, pad);
+      const hits = [];
+      let start = 0;
+      while (true) {
+        const index = findBytes(buf, oldBytes, start);
+        if (index < 0) break;
+        buf.set(patched, index);
+        hits.push(index);
+        start = index + oldBytes.length;
+      }
+      return hits;
+    }
+
+    function decodeHex(value) {
+      const cleaned = value.replace(/\s+/g, "");
+      if (!cleaned.length) {
+        throw new PatchError("INVALID_HEX", "hex value is empty");
+      }
+      if (cleaned.length % 2 !== 0 || /[^0-9a-fA-F]/.test(cleaned)) {
+        throw new PatchError("INVALID_HEX", "invalid hex");
+      }
+      const out = new Uint8Array(cleaned.length / 2);
+      for (let i = 0; i < out.length; i++) {
+        out[i] = parseInt(cleaned.slice(i * 2, i * 2 + 2), 16);
+      }
+      return out;
+    }
+
+    function decodeB64(value) {
+      const cleaned = value.replace(/\s+/g, "");
+      if (!cleaned.length) {
+        throw new PatchError("INVALID_BASE64", "base64 value is empty");
+      }
+      if (!/^[A-Za-z0-9+/]*={0,2}$/.test(cleaned) || cleaned.length % 4 !== 0) {
+        throw new PatchError("INVALID_BASE64", "invalid base64");
+      }
+      let bin;
+      try {
+        bin = atob(cleaned);
+      } catch {
+        throw new PatchError("INVALID_BASE64", "invalid base64");
+      }
+      const out = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+      return out;
+    }
+
+    function encodeB64(bytes) {
+      let bin = "";
+      for (const byte of bytes) bin += String.fromCharCode(byte);
+      return btoa(bin);
+    }
+
+    function decodeUtf8(value) {
+      return new TextEncoder().encode(value);
+    }
+
+    function decodePadByte(value) {
+      let cleaned = String(value).trim().toLowerCase();
+      if (cleaned.startsWith("0x")) cleaned = cleaned.slice(2);
+      if (!cleaned) {
+        throw new PatchError("INVALID_PAD", "pad byte is empty");
+      }
+      if (!/^[0-9a-f]+$/.test(cleaned)) {
+        throw new PatchError("INVALID_PAD", `invalid pad byte (hex): ${value}`);
+      }
+      const number = parseInt(cleaned, 16);
+      if (number < 0 || number > 255) {
+        throw new PatchError("INVALID_PAD", `pad byte must be 0x00..0xFF, got ${value}`);
+      }
+      return number;
+    }
+
+    function tryDecodeB64(value) {
+      try {
+        return decodeB64(value);
+      } catch {
+        return null;
+      }
+    }
+
+    function tryDecodeCandidates(value) {
+      const utf8 = decodeUtf8(value);
+      const candidates = [{ name: "utf-8", bytes: utf8 }];
+      const decoded = tryDecodeB64(value);
+      if (decoded && decoded.length && !bytesEqual(decoded, utf8)) {
+        candidates.push({ name: "base64", bytes: decoded });
+      }
+      return candidates;
+    }
+
+    function describeAutoEncodings(value) {
+      const parts = [`utf-8 (${decodeUtf8(value).length} bytes)`];
+      const decoded = tryDecodeB64(value);
+      if (!decoded) parts.push("base64 (invalid)");
+      else parts.push(`base64 (${decoded.length} bytes)`);
+      return parts.join(" or ");
+    }
+
+    function formatHitOffsets(hits, limit = 8) {
+      const shown = hits.slice(0, limit).map((offset) => `0x${offset.toString(16)}`);
+      if (hits.length > limit) shown.push(`… (${hits.length} total)`);
+      return shown.join(", ");
+    }
+
+    function resolveAutoEncoding(data, oldValue, newValue) {
+      const candidates = tryDecodeCandidates(oldValue).filter((c) => c.bytes.length);
+      if (!candidates.length) {
+        throw new PatchError("EMPTY_NEEDLE", "replacement needle must not be empty");
+      }
+
+      const matched = [];
+      for (const candidate of candidates) {
+        const hits = findOffsets(data, candidate.bytes);
+        if (hits.length) matched.push({ ...candidate, hits });
+      }
+
+      if (!matched.length) {
+        throw new PatchError(
+          "NEEDLE_NOT_FOUND",
+          `needle not found as ${describeAutoEncodings(oldValue)}`,
+        );
+      }
+      if (matched.length > 1) {
+        const details = matched
+          .map((item) => `${item.name} (${item.hits.length} hit(s) at ${formatHitOffsets(item.hits)})`)
+          .join(" and ");
+        throw new PatchError(
+          "AMBIGUOUS_ENCODING",
+          `ambiguous encoding: found as ${details}. Use utf-8 for literal text, or base64 for a decoded Base64 value.`,
+        );
+      }
+
+      const { name, bytes: oldBytes } = matched[0];
+      let newBytes;
+      if (name === "utf-8") {
+        newBytes = decodeUtf8(newValue);
+      } else if (name === "base64") {
+        try {
+          newBytes = decodeB64(newValue);
+        } catch (err) {
+          throw new PatchError("INVALID_BASE64", `--new is not valid base64: ${err.message}`);
+        }
+      } else {
+        throw new PatchError("INTERNAL", `unknown encoding ${name}`);
+      }
+      return { encoding: name, oldBytes, newBytes };
+    }
+
+    function resolveReplacement(data, oldValue, newValue, mode) {
+      if (!oldValue) {
+        throw new PatchError("EMPTY_NEEDLE", "replacement needle must not be empty");
+      }
+      if (mode === "auto") {
+        return resolveAutoEncoding(data, oldValue, newValue);
+      }
+      if (mode === "utf-8") {
+        return { encoding: "utf-8", oldBytes: decodeUtf8(oldValue), newBytes: decodeUtf8(newValue) };
+      }
+      if (mode === "hex") {
+        return { encoding: "hex", oldBytes: decodeHex(oldValue), newBytes: decodeHex(newValue) };
+      }
+      if (mode === "base64") {
+        return { encoding: "base64", oldBytes: decodeB64(oldValue), newBytes: decodeB64(newValue) };
+      }
+      throw new PatchError("INVALID_MODE", `unknown encoding mode: ${mode}`);
+    }
+
+    function imageContainsHit(image, hit, needleLength) {
+      for (let i = 0; i < needleLength; i++) {
+        const pos = hit + i;
+        if (pos >= image.offset && pos < image.endOffset) return true;
+      }
+      return false;
+    }
+
+    /**
+     * Apply replacements in order, then repair overlapping ESP-IDF images.
+     * @param {Uint8Array} data
+     * @param {{old: string, new: string, mode: string}[]} replacements
+     * @param {{pad?: number}} [options]
+     */
+    async function patchFirmware(data, replacements, options = {}) {
+      const pad = options.pad ?? 0;
+      if (!replacements.length) {
+        throw new PatchError("NO_REPLACEMENTS", "add at least one replacement");
+      }
+
+      const images = findImages(data);
+      if (!images.length) {
+        throw new PatchError("NO_ESP_IMAGE", "no ESP-IDF images found (not an ESPHome .bin?)");
+      }
+
+      const buf = new Uint8Array(data);
+      const results = [];
+
+      for (let index = 0; index < replacements.length; index++) {
+        const spec = replacements[index];
+        const resolved = resolveReplacement(buf, spec.old, spec.new ?? "", spec.mode);
+        const hits = replaceBytes(buf, resolved.oldBytes, resolved.newBytes, pad);
+        if (!hits.length) {
+          throw new PatchError(
+            "NEEDLE_NOT_FOUND",
+            `replacement ${index + 1}: needle not found (${resolved.encoding}, ${resolved.oldBytes.length} bytes)`,
+            { index, encoding: resolved.encoding },
+          );
+        }
+        results.push({
+          index,
+          encoding: resolved.encoding,
+          oldLength: resolved.oldBytes.length,
+          newLength: resolved.newBytes.length,
+          hits,
+        });
+      }
+
+      const allHits = results.flatMap((item) =>
+        item.hits.map((hit) => ({ hit, length: item.oldLength })),
+      );
+
+      const repairs = [];
+      for (const image of images) {
+        const overlaps = allHits.some(({ hit, length }) => imageContainsHit(image, hit, length));
+        const beforeOk = await imageChecksumOk(buf, image);
+        if (!overlaps && beforeOk) continue;
+        await repairImage(buf, image);
+        repairs.push({
+          offset: image.offset,
+          beforeOk,
+          afterOk: await imageChecksumOk(buf, image),
+        });
+      }
+
+      const stillBad = [];
+      for (const image of images) {
+        if (!(await imageChecksumOk(buf, image))) stillBad.push(image.offset);
+      }
+      if (stillBad.length) {
+        throw new PatchError(
+          "REPAIR_FAILED",
+          `failed to repair images at ${stillBad.map((o) => `0x${o.toString(16)}`).join(", ")}`,
+        );
+      }
+
+      return { data: buf, results, repairs, images };
+    }
+
+    function writeU32(buf, offset, value) {
+      buf[offset] = value & 0xff;
+      buf[offset + 1] = (value >>> 8) & 0xff;
+      buf[offset + 2] = (value >>> 16) & 0xff;
+      buf[offset + 3] = (value >>> 24) & 0xff;
+    }
+
+    async function buildTestImage(payload, hashAppended = true) {
+      const header = new Uint8Array(HEADER_SIZE);
+      header[0] = IMAGE_MAGIC;
+      header[1] = 1;
+      header[HASH_APPENDED_OFFSET] = hashAppended ? 1 : 0;
+      const segmentHeader = new Uint8Array(8);
+      writeU32(segmentHeader, 0, 0x3c000000);
+      writeU32(segmentHeader, 4, payload.length);
+      const body = new Uint8Array(HEADER_SIZE + 8 + payload.length);
+      body.set(header, 0);
+      body.set(segmentHeader, HEADER_SIZE);
+      body.set(payload, HEADER_SIZE + 8);
+      const padding = 15 - (body.length % 16);
+      let checksum = CHECKSUM_INIT;
+      for (const byte of payload) checksum ^= byte;
+      const image = new Uint8Array(body.length + padding + 1 + (hashAppended ? 32 : 0));
+      image.set(body, 0);
+      image[body.length + padding] = checksum & 0xff;
+      if (hashAppended) {
+        const digest = await sha256(image.slice(0, body.length + padding + 1));
+        image.set(digest, body.length + padding + 1);
+      }
+      return image;
+    }
+
+    function assert(condition, message) {
+      if (!condition) throw new Error(message || "assertion failed");
+    }
+
+    async function runSelfTest() {
+      const encoder = new TextEncoder();
+      const marker = encoder.encode("HELLO-ESP-FIRMWARE-TEST!!");
+      const replacement = encoder.encode("WORLD-ESP-FIRMWARE-TEST!!");
+      assert(marker.length === replacement.length);
+
+      const payload = new Uint8Array(32 + marker.length + 48);
+      payload.fill(0, 0, 32);
+      payload.set(marker, 32);
+      payload.fill(0xff, 32 + marker.length);
+
+      const original = await buildTestImage(payload);
+      const mutable = new Uint8Array(original);
+      const image = parseEspImage(mutable, 0);
+      assert(image, "failed to parse synthetic image");
+      assert(await imageChecksumOk(mutable, image), "synthetic image checksum broken");
+
+      const hits = replaceBytes(mutable, marker, replacement);
+      assert(hits.length === 1 && hits[0] === HEADER_SIZE + 8 + 32, `hits ${hits}`);
+      assert(!(await imageChecksumOk(mutable, image)), "expected checksum to break after patch");
+      await repairImage(mutable, image);
+      assert(await imageChecksumOk(mutable, image), "repair failed");
+      assert(findBytes(mutable, replacement) >= 0);
+      assert(findBytes(mutable, marker) < 0);
+
+      const shortOld = encoder.encode("NEEDLE-TOO-LONG!!");
+      const shortNew = encoder.encode("TINY");
+      const shortPadded = paddedReplacement(shortOld, shortNew);
+      assert(shortPadded.length === shortOld.length);
+      assert(bytesEqual(shortPadded.slice(0, 4), shortNew));
+
+      const shortPayload = new Uint8Array(16 + shortOld.length + 16);
+      shortPayload.fill(0xaa, 0, 16);
+      shortPayload.set(shortOld, 16);
+      shortPayload.fill(0xbb, 16 + shortOld.length);
+      const shortBuf = new Uint8Array(await buildTestImage(shortPayload));
+      const shortImage = parseEspImage(shortBuf, 0);
+      assert(shortImage && (await imageChecksumOk(shortBuf, shortImage)));
+      const shortHits = replaceBytes(shortBuf, shortOld, shortNew);
+      assert(shortHits.length, "short needle not found");
+      await repairImage(shortBuf, shortImage);
+      assert(await imageChecksumOk(shortBuf, shortImage), "repair failed after shorter patch");
+
+      let longerRejected = false;
+      try {
+        paddedReplacement(encoder.encode("abc"), encoder.encode("abcd"));
+      } catch (err) {
+        longerRejected = err instanceof PatchError && err.code === "REPLACEMENT_TOO_LONG";
+      }
+      assert(longerRejected, "longer replacement must be rejected");
+
+      const boot = await buildTestImage(encoder.encode("BOOT" + "\x11".repeat(60)));
+      const factory = new Uint8Array(0x10000 + 4096);
+      factory.fill(0xff);
+      factory.set(boot, 0);
+      const appPayload = new Uint8Array(4 + marker.length + 4);
+      appPayload.set(encoder.encode("xxxx"), 0);
+      appPayload.set(marker, 4);
+      appPayload.set(encoder.encode("yyyy"), 4 + marker.length);
+      const app = await buildTestImage(appPayload);
+      factory.set(app, 0x10000);
+
+      const label = encoder.encode("ota_0");
+      const entry = new Uint8Array(PARTITION_ENTRY_SIZE);
+      entry[0] = PARTITION_MAGIC & 0xff;
+      entry[1] = PARTITION_MAGIC >> 8;
+      entry[2] = PARTITION_TYPE_APP;
+      entry[3] = 0x10;
+      writeU32(entry, 4, 0x10000);
+      writeU32(entry, 8, 0x100000);
+      entry.set(label, 12);
+      factory.set(entry, 0x8000);
+      factory[0x8000 + PARTITION_ENTRY_SIZE] = 0xff;
+      factory[0x8000 + PARTITION_ENTRY_SIZE + 1] = 0xff;
+
+      const images = findImages(factory);
+      assert(images.some((img) => img.offset === 0), "bootloader image missing");
+      assert(images.some((img) => img.offset === 0x10000), "app image missing");
+      const factoryHits = replaceBytes(factory, marker, replacement);
+      assert(factoryHits.length, "marker not found in factory blob");
+      for (const img of images) {
+        if (factoryHits.some((h) => imageContainsHit(img, h, marker.length))) {
+          await repairImage(factory, img);
+        }
+      }
+      const appImage = parseEspImage(factory, 0x10000);
+      assert(appImage && (await imageChecksumOk(factory, appImage)));
+
+      const info = await describeFirmware(factory);
+      assert(info.isMergedFactory, "factory blob should be detected as merged");
+
+      const keyRaw = Uint8Array.from({ length: 32 }, (_, i) => i);
+      const keyB64 = encodeB64(keyRaw);
+      const newRaw = new Uint8Array(32);
+      const newB64 = encodeB64(newRaw);
+      const ssid = "wifi_ssid";
+      const ssidNew = "othername";
+
+      const autoKey = resolveAutoEncoding(keyRaw, keyB64, newB64);
+      assert(autoKey.encoding === "base64");
+      assert(bytesEqual(autoKey.oldBytes, keyRaw));
+
+      const autoSsid = resolveAutoEncoding(decodeUtf8(ssid), ssid, ssidNew);
+      assert(autoSsid.encoding === "utf-8");
+
+      let missing = false;
+      try {
+        resolveAutoEncoding(new Uint8Array(64), ssid, ssidNew);
+      } catch (err) {
+        missing = err instanceof PatchError && err.code === "NEEDLE_NOT_FOUND";
+      }
+      assert(missing, "missing needle must fail auto-detect");
+
+      const both = new Uint8Array(keyRaw.length + decodeUtf8(keyB64).length);
+      both.set(keyRaw, 0);
+      both.set(decodeUtf8(keyB64), keyRaw.length);
+      let ambiguous = false;
+      try {
+        resolveAutoEncoding(both, keyB64, newB64);
+      } catch (err) {
+        ambiguous = err instanceof PatchError && err.code === "AMBIGUOUS_ENCODING";
+      }
+      assert(ambiguous, "ambiguous encoding must fail auto-detect");
+
+      const patched = await patchFirmware(await buildTestImage(payload), [
+        { old: "HELLO-ESP-FIRMWARE-TEST!!", new: "WORLD-ESP-FIRMWARE-TEST!!", mode: "utf-8" },
+      ]);
+      assert(patched.results[0].hits.length === 1);
+
+      return true;
+    }
+
+    const fileInput = document.getElementById("file");
+    const fileInfo = document.getElementById("file-info");
+    const replacementsEl = document.getElementById("replacements");
+    const rowTemplate = document.getElementById("row-template");
+    const padInput = document.getElementById("pad");
+    const chipSelect = document.getElementById("chip");
+    const statusEl = document.getElementById("status");
+    const resultEl = document.getElementById("result");
+    const patchBtn = document.getElementById("patch");
+    const downloadBtn = document.getElementById("download");
+    const installBtn = document.getElementById("install");
+    const installActivate = document.getElementById("install-activate");
+    const installHint = document.getElementById("install-hint");
+
+    let originalBytes = null;
+    let originalName = "firmware.bin";
+    let firmwareInfo = null;
+    let patchedBytes = null;
+    let firmwareBlobUrl = null;
+    let manifestBlobUrl = null;
+
+    for (const family of CHIP_FAMILIES) {
+      const option = document.createElement("option");
+      option.value = family;
+      option.textContent = family;
+      chipSelect.appendChild(option);
+    }
+    chipSelect.value = "ESP32-C6";
+
+    function addRow(oldValue = "", newValue = "", mode = "auto") {
+      const node = rowTemplate.content.cloneNode(true);
+      const row = node.querySelector(".row");
+      row.querySelector(".old").value = oldValue;
+      row.querySelector(".new").value = newValue;
+      row.querySelector(".mode").value = mode;
+      row.querySelector(".remove").addEventListener("click", () => {
+        if (replacementsEl.children.length === 1) return;
+        row.remove();
+      });
+      replacementsEl.appendChild(node);
+    }
+
+    addRow();
+
+    document.getElementById("add-row").addEventListener("click", () => addRow());
+
+    function showStatus(kind, text) {
+      statusEl.hidden = false;
+      statusEl.className = `status ${kind}`;
+      statusEl.textContent = text;
+    }
+
+    function hideStatus() {
+      statusEl.hidden = true;
+      statusEl.textContent = "";
+    }
+
+    function revokeBlobs() {
+      if (firmwareBlobUrl) URL.revokeObjectURL(firmwareBlobUrl);
+      if (manifestBlobUrl) URL.revokeObjectURL(manifestBlobUrl);
+      firmwareBlobUrl = null;
+      manifestBlobUrl = null;
+    }
+
+    function disableInstall(reason) {
+      installActivate.disabled = true;
+      installHint.textContent = reason || "";
+      revokeBlobs();
+      installBtn.manifest = "";
+      installBtn.removeAttribute("manifest");
+    }
+
+    function hexOffset(n) {
+      return `0x${n.toString(16)}`;
+    }
+
+    function renderFileInfo(info, bytes) {
+      const lines = [
+        `${bytes.length} bytes`,
+        info.isMergedFactory
+          ? "Looks like a merged factory image (Web Install OK)."
+          : "Looks like an app-only image. You can patch and download, but Web Install is disabled.",
+        info.chipFamily
+          ? `Detected chip family: ${info.chipFamily}`
+          : "Could not detect chip family from the image header — pick one below.",
+        "",
+        "ESP-IDF images:",
+      ];
+      if (!info.images.length) {
+        lines.push("  (none found)");
+      } else {
+        for (const image of info.images) {
+          const sha = image.shaOffset != null ? ` sha256@${hexOffset(image.shaOffset)}` : " no-sha256";
+          lines.push(
+            `  image @${hexOffset(image.offset)}  segments=${image.segmentCount}  ` +
+              `checksum@${hexOffset(image.checksumOffset)}${sha}  [${image.ok ? "ok" : "INVALID"}]`,
+          );
+        }
+      }
+      fileInfo.hidden = false;
+      fileInfo.innerHTML = `<pre>${lines.join("\n")}</pre>`;
+    }
+
+    function resetPatchState() {
+      patchedBytes = null;
+      downloadBtn.disabled = true;
+      resultEl.hidden = true;
+      disableInstall("Patch the firmware before installing.");
+    }
+
+    fileInput.addEventListener("change", async () => {
+      hideStatus();
+      resetPatchState();
+      originalBytes = null;
+      firmwareInfo = null;
+      fileInfo.hidden = true;
+      const file = fileInput.files[0];
+      if (!file) return;
+      originalName = file.name || "firmware.bin";
+      try {
+        originalBytes = new Uint8Array(await file.arrayBuffer());
+        firmwareInfo = await describeFirmware(originalBytes);
+        if (firmwareInfo.chipFamily) chipSelect.value = firmwareInfo.chipFamily;
+        renderFileInfo(firmwareInfo, originalBytes);
+        if (!firmwareInfo.images.length) {
+          showStatus("error", "No ESP-IDF images found. This does not look like an ESPHome / ESP-IDF .bin.");
+        }
+      } catch (err) {
+        showStatus("error", err.message || String(err));
+      }
+    });
+
+    function collectReplacements() {
+      const rows = [...replacementsEl.querySelectorAll(".row")];
+      const list = [];
+      for (const row of rows) {
+        const oldValue = row.querySelector(".old").value;
+        const newValue = row.querySelector(".new").value;
+        const mode = row.querySelector(".mode").value;
+        if (!oldValue && !newValue) continue;
+        if (!oldValue) {
+          throw new PatchError("EMPTY_NEEDLE", "a replacement row has an empty Old value");
+        }
+        list.push({ old: oldValue, new: newValue, mode });
+      }
+      return list;
+    }
+
+    function enableInstall(bytes, chipFamily) {
+      revokeBlobs();
+      const fwBlob = new Blob([bytes], { type: "application/octet-stream" });
+      firmwareBlobUrl = URL.createObjectURL(fwBlob);
+      const manifest = {
+        name: "Patched firmware",
+        version: "patched",
+        new_install_prompt_erase: true,
+        builds: [
+          {
+            chipFamily,
+            parts: [{ path: firmwareBlobUrl, offset: 0 }],
+          },
+        ],
+      };
+      manifestBlobUrl = URL.createObjectURL(
+        new Blob([JSON.stringify(manifest)], { type: "application/json" }),
+      );
+      installBtn.manifest = manifestBlobUrl;
+      installActivate.disabled = false;
+      installHint.textContent = `Ready to flash as ${chipFamily} (merged image, offset 0).`;
+    }
+
+    patchBtn.addEventListener("click", async () => {
+      hideStatus();
+      resultEl.hidden = true;
+      resetPatchState();
+      if (!originalBytes) {
+        showStatus("error", "Choose a firmware .bin first.");
+        return;
+      }
+      let replacements;
+      let pad;
+      try {
+        replacements = collectReplacements();
+        pad = decodePadByte(padInput.value);
+      } catch (err) {
+        showStatus("error", err.message || String(err));
+        return;
+      }
+      if (!replacements.length) {
+        showStatus("error", "Add at least one replacement (Old / New).");
+        return;
+      }
+      patchBtn.disabled = true;
+      try {
+        const patched = await patchFirmware(originalBytes, replacements, { pad });
+        patchedBytes = patched.data;
+        downloadBtn.disabled = false;
+        const lines = patched.results.map((item, i) => {
+          const spec = replacements[i];
+          return (
+            `Replacement ${i + 1} (${spec.mode} → ${item.encoding}): ` +
+            `${item.hits.length} hit(s) of ${item.oldLength} byte(s)` +
+            (item.newLength < item.oldLength
+              ? `, padded ${item.oldLength - item.newLength} with 0x${pad.toString(16).padStart(2, "0")}`
+              : "") +
+            `\n  at ${formatHitOffsets(item.hits)}`
+          );
+        });
+        for (const repair of patched.repairs) {
+          lines.push(
+            `Repaired image @${hexOffset(repair.offset)} ` +
+              `(checksum was ${repair.beforeOk ? "ok" : "stale"} → ${repair.afterOk ? "ok" : "STILL BAD"})`,
+          );
+        }
+        resultEl.hidden = false;
+        resultEl.innerHTML = `<pre>${lines.join("\n")}</pre>`;
+        showStatus("ok", "Patch succeeded. Download the file or install over USB.");
+
+        const info = firmwareInfo || (await describeFirmware(originalBytes));
+        const chipFamily = chipSelect.value;
+        if (!info.isMergedFactory) {
+          disableInstall(
+            "Web Install needs a merged firmware.factory.bin. This file looks like an app-only image — use Download instead.",
+          );
+        } else if (!chipFamily) {
+          disableInstall("Select a chip family before installing.");
+        } else {
+          enableInstall(patchedBytes, chipFamily);
+        }
+      } catch (err) {
+        const message = err instanceof PatchError ? err.message : err.message || String(err);
+        showStatus("error", message);
+        disableInstall("Fix the error above, then patch again.");
+      } finally {
+        patchBtn.disabled = false;
+      }
+    });
+
+    chipSelect.addEventListener("change", () => {
+      if (!patchedBytes) return;
+      const info = firmwareInfo;
+      if (info && info.isMergedFactory && chipSelect.value) {
+        enableInstall(patchedBytes, chipSelect.value);
+      }
+    });
+
+    downloadBtn.addEventListener("click", () => {
+      if (!patchedBytes) return;
+      const blob = new Blob([patchedBytes], { type: "application/octet-stream" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      const base = originalName.replace(/\.bin$/i, "");
+      a.href = url;
+      a.download = `${base}.patched.bin`;
+      a.click();
+      URL.revokeObjectURL(url);
+    });
+
+    document.getElementById("self-test").addEventListener("click", async () => {
+      hideStatus();
+      try {
+        await runSelfTest();
+        showStatus("ok", "Self-test passed.");
+      } catch (err) {
+        showStatus("error", `Self-test failed: ${err.message || err}`);
+      }
+    });
+
+    disableInstall("Patch the firmware before installing.");
+  </script>
+</body>
+</html>
