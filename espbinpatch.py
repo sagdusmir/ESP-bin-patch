@@ -48,6 +48,7 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
+__version__ = "0.1.0"
 
 IMAGE_MAGIC = 0xE9
 CHECKSUM_INIT = 0xEF
@@ -591,6 +592,11 @@ def run_self_test() -> int:
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Replace bytes in an ESPHome firmware image and repair ESP-IDF checksums."
+    )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {__version__}",
     )
     parser.add_argument(
         "firmware",
