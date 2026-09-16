@@ -76,7 +76,7 @@ When `--new` is shorter than `--old`, leftover bytes are padded. `--pad` is a he
 - Requires Chrome or Edge browser
 - Several replacements, each with mode **auto / utf-8 / hex / base64**
 - Errors (missing needle, invalid hex/base64, replacement too long, …) are shown on the page
-- **Web Install** needs a merged `firmware.factory.bin`. An app-only `firmware.bin` can still be patched and downloaded.
+- **Keep saved settings** writes only the program (app partition), so Wi-Fi and other saved values stay. **Erase everything** writes a merged factory image from the start of flash.
 
 
 Locally:

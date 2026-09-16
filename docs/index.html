@@ -83,6 +83,19 @@
     .status.warn { background: var(--warn-bg); color: var(--warn); }
     .muted { color: var(--muted); font-size: 0.92rem; }
     .hint { color: var(--muted); font-weight: 400; font-size: 0.85rem; }
+    .choice {
+      display: flex;
+      gap: 0.65rem;
+      align-items: flex-start;
+      font-weight: 400;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 0.75rem 1rem;
+      margin: 0.5rem 0;
+      background: var(--bg);
+    }
+    .choice input { margin-top: 0.35rem; flex-shrink: 0; }
+    .choice strong { display: block; margin-bottom: 0.15rem; }
     footer { margin-top: 2.5rem; color: var(--muted); font-size: 0.9rem; }
     esp-web-install-button { display: inline-block; }
     esp-web-install-button button { font: inherit; }
@@ -97,11 +110,11 @@
   </p>
 
   <h2>1. Firmware file</h2>
-  <label for="file">Merged <code>firmware.factory.bin</code> (needed for Web Install)</label>
+  <label for="file">Firmware <code>.bin</code></label>
   <input id="file" type="file" accept=".bin,application/octet-stream">
   <p class="muted">
-    An app-only <code>firmware.bin</code> can still be patched and downloaded,
-    but cannot be web-installed (that would overwrite the bootloader).
+    Use a merged <code>firmware.factory.bin</code> (bootloader + program) for a first-time install.
+    An app-only <code>firmware.bin</code> is enough if the device already runs and you want to keep Wi-Fi and other saved settings.
   </p>
   <div id="file-info" class="box" hidden></div>
 
@@ -133,7 +146,37 @@
   <div id="status" class="status" hidden></div>
   <div id="result" class="box" hidden></div>
 
-  <h2>4. Install</h2>
+  <h2>4. Saved settings</h2>
+  <p class="muted">
+    The chip stores two kinds of things: the <strong>program</strong> (this file) and
+    <strong>saved settings</strong> (Wi-Fi password, Home Assistant key, and similar).
+    Those settings live in a separate area. You can update the program without touching that area.
+    <strong>Erase everything is required at least once</strong> — the first time you flash a blank
+    or new board — so the bootloader is installed. After that, use keep-settings for updates.
+  </p>
+  <label class="choice">
+    <input type="radio" name="flash-mode" value="keep" checked>
+    <span>
+      <strong>Keep saved settings</strong> — later updates, if the device already works.
+      Only the program is written. Wi-Fi and other saved values stay.
+      If the installer later asks “Erase device”, leave that box <strong>unchecked</strong>
+      (erasing would wipe the bootloader too, because this mode does not rewrite it).
+    </span>
+  </label>
+  <label class="choice">
+    <input type="radio" name="flash-mode" value="erase">
+    <span>
+      <strong>Erase everything</strong> — required at least initially (first flash on a new
+      or empty board), or if the device will not boot.
+      Writes a full image from the start of the flash. Wi-Fi and saved settings are lost.
+      Needs a merged factory file.
+    </span>
+  </label>
+  <label for="app-offset">Where the program lives on the chip (keep-settings only)</label>
+  <p class="muted">Almost always <code>10000</code>. Change this only if you know your board uses a different layout.</p>
+  <input id="app-offset" type="text" value="10000" maxlength="10" style="max-width: 8rem">
+
+  <h2>5. Install</h2>
   <p class="muted">
     Chrome or Edge, over <strong>HTTPS</strong> (or localhost). Connect the board via USB,
     then install the <em>patched</em> image.
@@ -459,13 +502,73 @@
       }
 
       const chipFamily = listed.map((img) => img.chipFamily).find(Boolean) || null;
+      const appPartition = pickAppPartition(partitionApps);
 
       return {
         images: listed,
         chipFamily,
         isMergedFactory,
         partitionApps,
+        appPartition,
       };
+    }
+
+    const DEFAULT_APP_OFFSET = 0x10000;
+
+    function pickAppPartition(partitionApps) {
+      if (!partitionApps.length) return null;
+      return (
+        partitionApps.find((app) => /^ota_0$/i.test(app.label)) ||
+        partitionApps.find((app) => /^factory$/i.test(app.label)) ||
+        partitionApps[0]
+      );
+    }
+
+    function parseAppOffset(value) {
+      let cleaned = String(value).trim().toLowerCase();
+      if (cleaned.startsWith("0x")) cleaned = cleaned.slice(2);
+      if (!cleaned || /[^0-9a-f]/.test(cleaned)) {
+        throw new PatchError("INVALID_OFFSET", "Program location must be a hex number, for example 10000.");
+      }
+      return parseInt(cleaned, 16);
+    }
+
+    /** Program bytes + flash offset so NVS / settings partitions are not overwritten. */
+    function extractAppImage(data) {
+      const images = findImages(data);
+      let partitionApps = [];
+      for (const tableOffset of PARTITION_TABLE_OFFSETS) {
+        const apps = parsePartitionTable(data, tableOffset);
+        if (apps.length) {
+          partitionApps = apps;
+          break;
+        }
+      }
+      const slot = pickAppPartition(partitionApps);
+      if (slot) {
+        const image = parseEspImage(data, slot.offset);
+        if (image) {
+          return {
+            bytes: data.slice(image.offset, image.endOffset),
+            offset: slot.offset,
+            label: slot.label,
+          };
+        }
+      }
+      const appImg = images
+        .filter((image) => image.offset >= 0x10000)
+        .sort((a, b) => a.offset - b.offset)[0];
+      if (appImg) {
+        return {
+          bytes: data.slice(appImg.offset, appImg.endOffset),
+          offset: appImg.offset,
+          label: "app",
+        };
+      }
+      if (images.length === 1 && images[0].offset === 0) {
+        return { bytes: data, offset: DEFAULT_APP_OFFSET, label: "app-only" };
+      }
+      return null;
     }
 
     function paddedReplacement(oldBytes, newBytes, pad = 0x00) {
@@ -861,6 +964,9 @@
 
       const info = await describeFirmware(factory);
       assert(info.isMergedFactory, "factory blob should be detected as merged");
+      const extracted = extractAppImage(factory);
+      assert(extracted && extracted.offset === 0x10000, "app extract offset");
+      assert(extracted.bytes.length > 0, "app extract empty");
 
       const keyRaw = Uint8Array.from({ length: 32 }, (_, i) => i);
       const keyB64 = encodeB64(keyRaw);
@@ -983,8 +1089,11 @@
       const lines = [
         `${bytes.length} bytes`,
         info.isMergedFactory
-          ? "Looks like a merged factory image (Web Install OK)."
-          : "Looks like an app-only image. You can patch and download, but Web Install is disabled.",
+          ? "This file includes the bootloader and the program. You can keep settings (update program only) or erase everything."
+          : "This file is only the program. You can keep saved settings. A full erase-install needs a factory file.",
+        info.appPartition
+          ? `Program partition “${info.appPartition.label}” at ${hexOffset(info.appPartition.offset)}.`
+          : `No partition table found. Keep-settings will use the program location field (default ${hexOffset(DEFAULT_APP_OFFSET)}).`,
         info.chipFamily
           ? `Detected chip family: ${info.chipFamily}`
           : "Could not detect chip family from the image header — pick one below.",
@@ -1026,6 +1135,9 @@
         originalBytes = new Uint8Array(await file.arrayBuffer());
         firmwareInfo = await describeFirmware(originalBytes);
         if (firmwareInfo.chipFamily) chipSelect.value = firmwareInfo.chipFamily;
+        if (firmwareInfo.appPartition) {
+          document.getElementById("app-offset").value = firmwareInfo.appPartition.offset.toString(16);
+        }
         renderFileInfo(firmwareInfo, originalBytes);
         if (!firmwareInfo.images.length) {
           showStatus("error", "No ESP-IDF images found. This does not look like an ESPHome / ESP-IDF .bin.");
@@ -1051,18 +1163,77 @@
       return list;
     }
 
+    function flashMode() {
+      const picked = document.querySelector('input[name="flash-mode"]:checked');
+      return picked ? picked.value : "keep";
+    }
+
     function enableInstall(bytes, chipFamily) {
+      const keep = flashMode() === "keep";
+      const info = firmwareInfo || {};
+      let partBytes = bytes;
+      let partOffset = 0;
+      let hint;
+
+      if (keep) {
+        const extracted = extractAppImage(bytes);
+        if (!extracted) {
+          disableInstall(
+            "Could not find the program in this file. Use a factory .bin, or set the program location.",
+          );
+          return;
+        }
+        let offset;
+        try {
+          offset = parseAppOffset(document.getElementById("app-offset").value);
+        } catch (err) {
+          disableInstall(err.message);
+          return;
+        }
+        partBytes = extracted.bytes;
+        partOffset = offset;
+        hint =
+          `Ready: only the program will be written at ${hexOffset(partOffset)} (${chipFamily}). ` +
+          "Saved settings stay. If the installer asks “Erase device”, leave it unchecked.";
+        installBtn.overrides = {
+          checkSameFirmware() {
+            return true;
+          },
+        };
+      } else {
+        if (!info.isMergedFactory) {
+          disableInstall(
+            "Erase-everything needs a merged factory file (bootloader + program). This file is only the program — pick “Keep saved settings”, or use a firmware.factory.bin.",
+          );
+          return;
+        }
+        hint =
+          `Ready: full image from the start of the flash (${chipFamily}). ` +
+          "Wi-Fi and other saved settings will be lost.";
+        installBtn.overrides = {
+          checkSameFirmware() {
+            return false;
+          },
+        };
+      }
+
+      if (!chipFamily) {
+        disableInstall("Select a chip family before installing.");
+        return;
+      }
+
       revokeBlobs();
-      const fwBlob = new Blob([bytes], { type: "application/octet-stream" });
+      const fwBlob = new Blob([partBytes], { type: "application/octet-stream" });
       firmwareBlobUrl = URL.createObjectURL(fwBlob);
       const manifest = {
         name: "Patched firmware",
         version: "patched",
         new_install_prompt_erase: true,
+        new_install_improv_wait_time: keep ? 3 : 0,
         builds: [
           {
             chipFamily,
-            parts: [{ path: firmwareBlobUrl, offset: 0 }],
+            parts: [{ path: firmwareBlobUrl, offset: partOffset }],
           },
         ],
       };
@@ -1071,7 +1242,7 @@
       );
       installBtn.manifest = manifestBlobUrl;
       installActivate.disabled = false;
-      installHint.textContent = `Ready to flash as ${chipFamily} (merged image, offset 0).`;
+      installHint.textContent = hint;
     }
 
     patchBtn.addEventListener("click", async () => {
@@ -1121,17 +1292,8 @@
         resultEl.innerHTML = `<pre>${lines.join("\n")}</pre>`;
         showStatus("ok", "Patch succeeded. Download the file or install over USB.");
 
-        const info = firmwareInfo || (await describeFirmware(originalBytes));
-        const chipFamily = chipSelect.value;
-        if (!info.isMergedFactory) {
-          disableInstall(
-            "Web Install needs a merged firmware.factory.bin. This file looks like an app-only image — use Download instead.",
-          );
-        } else if (!chipFamily) {
-          disableInstall("Select a chip family before installing.");
-        } else {
-          enableInstall(patchedBytes, chipFamily);
-        }
+        firmwareInfo = await describeFirmware(patchedBytes);
+        enableInstall(patchedBytes, chipSelect.value);
       } catch (err) {
         const message = err instanceof PatchError ? err.message : err.message || String(err);
         showStatus("error", message);
@@ -1141,13 +1303,16 @@
       }
     });
 
-    chipSelect.addEventListener("change", () => {
+    function refreshInstall() {
       if (!patchedBytes) return;
-      const info = firmwareInfo;
-      if (info && info.isMergedFactory && chipSelect.value) {
-        enableInstall(patchedBytes, chipSelect.value);
-      }
-    });
+      enableInstall(patchedBytes, chipSelect.value);
+    }
+
+    chipSelect.addEventListener("change", refreshInstall);
+    document.getElementById("app-offset").addEventListener("change", refreshInstall);
+    for (const radio of document.querySelectorAll('input[name="flash-mode"]')) {
+      radio.addEventListener("change", refreshInstall);
+    }
 
     downloadBtn.addEventListener("click", () => {
       if (!patchedBytes) return;
