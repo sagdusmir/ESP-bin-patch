@@ -70,17 +70,14 @@ When `--new` is shorter than `--old`, leftover bytes are padded. `--pad` is a he
 
 ## Web demo
 
-[`docs/index.html`](docs/index.html) is a static page that ports this patcher to JavaScript and can **install the patched image over USB** with [ESP Web Tools](https://esphome.github.io/esp-web-tools/).
+[`docs/index.html`](https://sagdusmir.github.io/ESP-bin-patch/) is a static page that ports this patcher to JavaScript and can **install the patched image over USB**  using ESP Web Tools.
 
 - Runs in the browser only — the `.bin` is never uploaded to a server
+- Requires Chrome or Edge browser
 - Several replacements, each with mode **auto / utf-8 / hex / base64**
 - Errors (missing needle, invalid hex/base64, replacement too long, …) are shown on the page
 - **Web Install** needs a merged `firmware.factory.bin`. An app-only `firmware.bin` can still be patched and downloaded.
 
-Serve it over **HTTPS** (GitHub Pages) or localhost, in Chrome or Edge:
-
-1. Repo **Settings → Pages → Deploy from a branch → `/docs`**
-2. Open `https://<user>.github.io/ESP-bin-patch/index.html`
 
 Locally:
 
