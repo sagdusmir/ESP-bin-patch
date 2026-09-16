@@ -34,10 +34,13 @@
     label { display: block; font-weight: 600; margin: 0.6rem 0 0.25rem; }
     input[type="text"], input[type="file"], select {
       width: 100%;
-      padding: 0.4rem 0.5rem;
+      height: 2.4rem;
+      padding: 0 0.5rem;
       border: 1px solid var(--border);
       border-radius: 4px;
       font: inherit;
+      line-height: 1.25;
+      margin: 0;
     }
     .row {
       display: grid;
@@ -50,6 +53,20 @@
       .row { grid-template-columns: 1fr; }
     }
     .row label { margin-top: 0; }
+    .row select {
+      -webkit-appearance: none;
+      appearance: none;
+      background-color: #fff;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%23333' d='M1.2 1.2 6 6l4.8-4.8'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 0.55rem center;
+      background-size: 0.7rem;
+      padding-right: 1.7rem;
+    }
+    .row button {
+      height: 2.4rem;
+      padding: 0 0.85rem;
+    }
     button, .btn {
       font: inherit;
       font-weight: 600;
@@ -59,6 +76,7 @@
       background: #222;
       color: #fff;
       cursor: pointer;
+      margin: 0;
     }
     button.secondary {
       background: #fff;
@@ -110,12 +128,21 @@
   </p>
 
   <h2>1. Firmware file</h2>
-  <label for="file">Firmware <code>.bin</code></label>
+  <label for="file">Firmware <code>.bin</code> from this computer</label>
   <input id="file" type="file" accept=".bin,application/octet-stream">
+  <label for="fw-url">Or firmware URL</label>
   <p class="muted">
-    Use a merged <code>firmware.factory.bin</code> (bootloader + program) for a first-time install.
-    An app-only <code>firmware.bin</code> is enough if the device already runs and you want to keep Wi-Fi and other saved settings.
+    Use a merged <code>firmware.factory.bin</code> for a first-time install, or an app-only
+    <code>firmware.bin</code> to keep Wi-Fi and other saved settings.
+    GitHub <strong>Release download</strong> links cannot be loaded in the browser (CORS).
+    Put the file on <strong>GitHub Pages</strong> or in the git tag
+    (<code>raw.githubusercontent.com</code>), then paste that URL — or pass it as
+    <code>?fw=…</code> in the page link.
   </p>
+  <div class="actions" style="margin-top: 0">
+    <input id="fw-url" type="text" placeholder="https://sagdusmir.github.io/your-repo/firmware.factory.bin" style="flex: 1; min-width: 12rem">
+    <button type="button" class="secondary" id="load-fw">Load URL</button>
+  </div>
   <div id="file-info" class="box" hidden></div>
 
   <h2>2. Replacements</h2>
@@ -187,6 +214,14 @@
     <span slot="not-allowed">Web Serial requires HTTPS (GitHub Pages) or localhost.</span>
   </esp-web-install-button>
   <p id="install-hint" class="hint"></p>
+  <div id="share-status" class="status" hidden></div>
+  <div class="actions">
+    <button type="button" class="secondary" id="copy-link">Copy share link</button>
+  </div>
+  <p class="muted">
+    <strong>Warning:</strong> the share link includes your replacements (Wi-Fi names, API keys, passwords).
+    Treat it like a secret — do not post it in a public README, issue, or chat unless those values are meant to be public.
+  </p>
 
   <footer>
     Third-party tooling, not affiliated with Espressif, ESPHome, or Home Assistant.
@@ -1011,6 +1046,7 @@
 
     const fileInput = document.getElementById("file");
     const fileInfo = document.getElementById("file-info");
+    const fwUrlInput = document.getElementById("fw-url");
     const replacementsEl = document.getElementById("replacements");
     const rowTemplate = document.getElementById("row-template");
     const padInput = document.getElementById("pad");
@@ -1029,6 +1065,8 @@
     let patchedBytes = null;
     let firmwareBlobUrl = null;
     let manifestBlobUrl = null;
+    let chipFromQuery = false;
+    let offsetFromQuery = false;
 
     for (const family of CHIP_FAMILIES) {
       const option = document.createElement("option");
@@ -1122,6 +1160,118 @@
       disableInstall("Patch the firmware before installing.");
     }
 
+    function parseGithubReleaseUrl(url) {
+      try {
+        const parsed = new URL(url);
+        if (parsed.hostname !== "github.com") return null;
+        const parts = parsed.pathname.split("/").filter(Boolean);
+        // owner/repo/releases/download/tag/file
+        if (parts.length >= 6 && parts[2] === "releases" && parts[3] === "download") {
+          return { owner: parts[0], repo: parts[1], tag: decodeURIComponent(parts[4]), file: decodeURIComponent(parts.slice(5).join("/")) };
+        }
+        // owner/repo/releases/latest/download/file
+        if (parts.length >= 6 && parts[2] === "releases" && parts[3] === "latest" && parts[4] === "download") {
+          return { owner: parts[0], repo: parts[1], tag: null, file: decodeURIComponent(parts.slice(5).join("/")) };
+        }
+        return null;
+      } catch {
+        return null;
+      }
+    }
+
+    function firmwareUrlCandidates(url) {
+      const list = [];
+      const add = (candidate) => {
+        if (candidate && !list.includes(candidate)) list.push(candidate);
+      };
+      const release = parseGithubReleaseUrl(url);
+      if (release) {
+        add(`https://${release.owner}.github.io/${release.repo}/${release.file}`);
+        add(`https://${release.owner}.github.io/${release.repo}/docs/${release.file}`);
+        if (release.tag) {
+          add(`https://raw.githubusercontent.com/${release.owner}/${release.repo}/${release.tag}/${release.file}`);
+          add(`https://cdn.jsdelivr.net/gh/${release.owner}/${release.repo}@${release.tag}/${release.file}`);
+        }
+      }
+      add(url);
+      return list;
+    }
+
+    async function applyFirmwareBytes(bytes, name, options = {}) {
+      originalBytes = bytes;
+      originalName = name || "firmware.bin";
+      firmwareInfo = await describeFirmware(originalBytes);
+      if (!options.keepChip && firmwareInfo.chipFamily) {
+        chipSelect.value = firmwareInfo.chipFamily;
+      }
+      if (!options.keepOffset && firmwareInfo.appPartition) {
+        document.getElementById("app-offset").value = firmwareInfo.appPartition.offset.toString(16);
+      }
+      renderFileInfo(firmwareInfo, originalBytes);
+      if (!firmwareInfo.images.length) {
+        showStatus("error", "No ESP-IDF images found. This does not look like an ESPHome / ESP-IDF .bin.");
+        return false;
+      }
+      return true;
+    }
+
+    async function loadFirmwareFromUrl(url, options = {}) {
+      const trimmed = String(url || "").trim();
+      if (!trimmed) {
+        showStatus("error", "Enter a firmware URL, or choose a file on this computer.");
+        return false;
+      }
+      let parsed;
+      try {
+        parsed = new URL(trimmed);
+      } catch {
+        showStatus("error", "That firmware URL is not valid.");
+        return false;
+      }
+      if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+        showStatus("error", "Firmware URL must start with https:// (or http:// on localhost).");
+        return false;
+      }
+      fwUrlInput.value = trimmed;
+      resetPatchState();
+      originalBytes = null;
+      firmwareInfo = null;
+      fileInfo.hidden = true;
+      const candidates = firmwareUrlCandidates(trimmed);
+      const errors = [];
+      for (const candidate of candidates) {
+        try {
+          const response = await fetch(candidate, { redirect: "follow" });
+          if (!response.ok) {
+            errors.push(`${candidate} → HTTP ${response.status}`);
+            continue;
+          }
+          const buffer = new Uint8Array(await response.arrayBuffer());
+          if (buffer.length < 24) {
+            errors.push(`${candidate} → file too small (${buffer.length} bytes)`);
+            continue;
+          }
+          const name = decodeURIComponent(candidate.split("/").pop() || "firmware.bin");
+          const ok = await applyFirmwareBytes(buffer, name, options);
+          if (!ok) return false;
+          const via = candidate === trimmed ? candidate : `${candidate} (Release download links are blocked in the browser; used this instead)`;
+          showStatus("ok", `Loaded ${buffer.length} bytes from ${via}`);
+          return true;
+        } catch (err) {
+          errors.push(`${candidate} → ${err.message || err}`);
+        }
+      }
+      showStatus(
+        "error",
+        "Could not download that firmware in the browser.\n\n" +
+          "GitHub Release “download” links (github.com/…/releases/download/…) are blocked by CORS. " +
+          "Put the .bin on GitHub Pages (https://USER.github.io/REPO/firmware.factory.bin) or in the git tag " +
+          "(raw.githubusercontent.com / jsDelivr), then use that URL.\n\nTried:\n" +
+          errors.join("\n"),
+      );
+      return false;
+    }
+
     fileInput.addEventListener("change", async () => {
       hideStatus();
       resetPatchState();
@@ -1130,21 +1280,17 @@
       fileInfo.hidden = true;
       const file = fileInput.files[0];
       if (!file) return;
-      originalName = file.name || "firmware.bin";
       try {
-        originalBytes = new Uint8Array(await file.arrayBuffer());
-        firmwareInfo = await describeFirmware(originalBytes);
-        if (firmwareInfo.chipFamily) chipSelect.value = firmwareInfo.chipFamily;
-        if (firmwareInfo.appPartition) {
-          document.getElementById("app-offset").value = firmwareInfo.appPartition.offset.toString(16);
-        }
-        renderFileInfo(firmwareInfo, originalBytes);
-        if (!firmwareInfo.images.length) {
-          showStatus("error", "No ESP-IDF images found. This does not look like an ESPHome / ESP-IDF .bin.");
-        }
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        await applyFirmwareBytes(bytes, file.name || "firmware.bin");
       } catch (err) {
         showStatus("error", err.message || String(err));
       }
+    });
+
+    document.getElementById("load-fw").addEventListener("click", async () => {
+      hideStatus();
+      await loadFirmwareFromUrl(fwUrlInput.value);
     });
 
     function collectReplacements() {
@@ -1245,13 +1391,13 @@
       installHint.textContent = hint;
     }
 
-    patchBtn.addEventListener("click", async () => {
+    async function applyPatch() {
       hideStatus();
       resultEl.hidden = true;
       resetPatchState();
       if (!originalBytes) {
         showStatus("error", "Choose a firmware .bin first.");
-        return;
+        return false;
       }
       let replacements;
       let pad;
@@ -1260,11 +1406,11 @@
         pad = decodePadByte(padInput.value);
       } catch (err) {
         showStatus("error", err.message || String(err));
-        return;
+        return false;
       }
       if (!replacements.length) {
         showStatus("error", "Add at least one replacement (Old / New).");
-        return;
+        return false;
       }
       patchBtn.disabled = true;
       try {
@@ -1294,13 +1440,19 @@
 
         firmwareInfo = await describeFirmware(patchedBytes);
         enableInstall(patchedBytes, chipSelect.value);
+        return true;
       } catch (err) {
         const message = err instanceof PatchError ? err.message : err.message || String(err);
         showStatus("error", message);
         disableInstall("Fix the error above, then patch again.");
+        return false;
       } finally {
         patchBtn.disabled = false;
       }
+    }
+
+    patchBtn.addEventListener("click", () => {
+      applyPatch();
     });
 
     function refreshInstall() {
@@ -1336,7 +1488,95 @@
       }
     });
 
+    function buildShareLink() {
+      const params = new URLSearchParams();
+      const fw = fwUrlInput.value.trim();
+      if (fw) params.set("fw", fw);
+      params.set("chip", chipSelect.value);
+      params.set("flash", flashMode());
+      params.set("pad", padInput.value.trim() || "00");
+      params.set("offset", document.getElementById("app-offset").value.trim() || "10000");
+      let replacements = [];
+      try {
+        replacements = collectReplacements();
+      } catch {
+        replacements = [];
+      }
+      for (const item of replacements) {
+        params.append("old", item.old);
+        params.append("new", item.new);
+        params.append("enc", item.mode);
+      }
+      const qs = params.toString();
+      return `${location.origin}${location.pathname}${qs ? `?${qs}` : ""}`;
+    }
+
+    document.getElementById("copy-link").addEventListener("click", async () => {
+      const shareStatus = document.getElementById("share-status");
+      const link = buildShareLink();
+      const showShareStatus = (kind, text) => {
+        shareStatus.hidden = false;
+        shareStatus.className = `status ${kind}`;
+        shareStatus.textContent = text;
+      };
+      try {
+        await navigator.clipboard.writeText(link);
+        showShareStatus(
+          "warn",
+          "Share link copied. It contains your replacements (keys, passwords, SSIDs). Do not share it publicly unless that is intentional.",
+        );
+      } catch {
+        showShareStatus("warn", `Copy failed. Link:\n${link}`);
+      }
+    });
+
+    async function applyQueryParams() {
+      const params = new URLSearchParams(location.search);
+      const fw = params.get("fw");
+      const chip = params.get("chip");
+      const flash = params.get("flash");
+      const pad = params.get("pad");
+      const offset = params.get("offset");
+      const olds = params.getAll("old");
+      const news = params.getAll("new");
+      const encs = params.getAll("enc");
+
+      if (chip && CHIP_FAMILIES.includes(chip)) {
+        chipSelect.value = chip;
+        chipFromQuery = true;
+      }
+      if (flash === "keep" || flash === "erase") {
+        const radio = document.querySelector(`input[name="flash-mode"][value="${flash}"]`);
+        if (radio) radio.checked = true;
+      }
+      if (pad != null && pad !== "") padInput.value = pad;
+      if (offset != null && offset !== "") {
+        document.getElementById("app-offset").value = offset;
+        offsetFromQuery = true;
+      }
+      if (olds.length) {
+        replacementsEl.innerHTML = "";
+        for (let i = 0; i < olds.length; i++) {
+          const enc = encs[i] || "auto";
+          const mode = ["auto", "utf-8", "hex", "base64"].includes(enc) ? enc : "auto";
+          addRow(olds[i], news[i] || "", mode);
+        }
+      }
+      if (fw) {
+        const loaded = await loadFirmwareFromUrl(fw, {
+          keepChip: chipFromQuery,
+          keepOffset: offsetFromQuery,
+        });
+        const patchFlag = params.get("patch");
+        const shouldPatch =
+          patchFlag === "1" ||
+          (patchFlag !== "0" && loaded && olds.length > 0);
+        if (loaded && shouldPatch) await applyPatch();
+      }
+    }
+
     disableInstall("Patch the firmware before installing.");
+    applyQueryParams();
   </script>
 </body>
 </html>

@@ -78,6 +78,29 @@ When `--new` is shorter than `--old`, leftover bytes are padded. `--pad` is a he
 - Errors (missing needle, invalid hex/base64, replacement too long, …) are shown on the page
 - **Keep saved settings** writes only the program (app partition), so Wi-Fi and other saved values stay. **Erase everything** writes a merged factory image from the start of flash.
 
+### Prefilled links
+
+Pass query parameters so a README can open the demo already filled in. The user still clicks **Install** (USB needs a click).
+
+| Param | Meaning |
+|---|---|
+| `fw` | HTTPS URL of the `.bin` |
+| `chip` | `ESP32-C6`, `ESP32`, … |
+| `flash` | `keep` or `erase` |
+| `pad` | pad byte (`00`) |
+| `offset` | app offset hex (`10000`) |
+| `old`, `new`, `enc` | one replacement; repeat the trio for more (`enc`: `auto`, `utf-8`, `hex`, `base64`) |
+| `patch` | `1` run Patch after load (default when `fw` and `old` are set); `0` to skip |
+
+Example:
+
+```
+https://sagdusmir.github.io/ESP-bin-patch/?fw=https://sagdusmir.github.io/G32-Display-320x172-BT/firmware.factory.bin&chip=ESP32-C6&flash=erase&old=PLACEHOLDER_KEY&new=YOUR_KEY&enc=auto
+```
+
+**GitHub Release download URLs cannot be fetched in the browser** (CORS). Use **GitHub Pages** (`https://USER.github.io/REPO/firmware.factory.bin`) or a file **in the git tag** (`raw.githubusercontent.com` / jsDelivr). If you pass a `…/releases/download/TAG/file.bin` link, the demo tries those CORS-friendly URLs automatically.
+
+The page has **Copy share link** to build this from the current form. That link includes replacement values (Wi-Fi names, API keys, passwords) — do not publish it unless those secrets are meant to be public.
 
 Locally:
 
