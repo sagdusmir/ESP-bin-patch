@@ -7,7 +7,7 @@
 `espbinpatch` replaces bytes in a compiled ESPHome / ESP-IDF firmware image and repairs the XOR checksum and SHA-256 so the device will still boot.
 
 
-Focus: **patch secrets in an already-built `.bin`** (Wi-Fi SSID, Home Assistant API encryption key, …) without shifting offsets or leaving a checksum that the ROM bootloader will reject.
+Focus: **patch secrets in an already-built `.bin`** (Wi-Fi SSID, Home Assistant API encryption key, …) without shifting offsets or leaving a checksum that the ROM bootloader will reject. However, there are some limitations.
 
 
 # Table of Contents
