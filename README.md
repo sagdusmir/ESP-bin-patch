@@ -70,13 +70,13 @@ When `--new` is shorter than `--old`, leftover bytes are padded. `--pad` is a he
 
 ## Web demo
 
-[`docs/index.html`](https://sagdusmir.github.io/ESP-bin-patch/) is a static page that ports this patcher to JavaScript and can **install the patched image over USB**  using ESP Web Tools.
+[`docs/index.html`](https://sagdusmir.github.io/ESP-bin-patch/) is a static page (with a JavaScript port of the patcher) that also allows **installing the patched image over USB**  using ESP Web Tools.
 
 - Runs in the browser only — the `.bin` is never uploaded to a server
 - Requires Chrome or Edge browser
 - Several replacements, each with mode **auto / utf-8 / hex / base64**
 - Errors (missing needle, invalid hex/base64, replacement too long, …) are shown on the page
-- **Keep saved settings** writes only the program (app partition), so Wi-Fi and other saved values stay. **Erase everything** writes a merged factory image from the start of flash.
+- "**Keep saved settings**" writes only the program (app partition), so Wi-Fi and other saved values stay. "**Erase everything**" writes a merged factory image from the start of flash.
 
 ### Prefilled links
 
