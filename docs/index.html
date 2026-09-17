@@ -28,6 +28,15 @@
       background: #fff;
     }
     h1 { font-size: 1.6rem; margin: 0 0 0.4rem; }
+    h1 .version {
+      font-size: 0.85rem;
+      font-weight: 500;
+      color: var(--muted);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      margin-left: 0.45rem;
+      vertical-align: middle;
+      white-space: nowrap;
+    }
     h2 { font-size: 1.15rem; margin: 1.75rem 0 0.6rem; }
     p.lead { color: var(--muted); margin-top: 0; }
     code, kbd { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.9em; }
@@ -52,6 +61,44 @@
     @media (max-width: 700px) {
       .row { grid-template-columns: 1fr; }
     }
+    body.form-locked .row { grid-template-columns: 1fr 1fr; }
+    @media (max-width: 700px) {
+      body.form-locked .row { grid-template-columns: 1fr; }
+    }
+    body.form-locked .mode-col,
+    body.form-locked .remove-col,
+    body.form-locked #add-row-actions,
+    body.form-locked #pad-field,
+    body.form-locked #chip-field,
+    body.form-locked #encoding-help {
+      display: none;
+    }
+    body.form-locked .old {
+      background: var(--bg);
+      color: var(--muted);
+    }
+    body.lock-from-query #lock-form-label,
+    body.lock-from-query #lock-hint,
+    body.lock-from-query #self-test-ui {
+      display: none;
+    }
+    .patch-actions { align-items: center; }
+    .self-test-ui {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .share-actions { align-items: center; }
+    .inline-check {
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+      font-weight: 400;
+      margin: 0;
+      cursor: pointer;
+    }
+    .inline-check input { margin: 0; }
     .row label { margin-top: 0; }
     .row select {
       -webkit-appearance: none;
@@ -112,62 +159,81 @@
       margin: 0.5rem 0;
       background: var(--bg);
     }
-    .choice input { margin-top: 0.35rem; flex-shrink: 0; }
+    .choice > input[type="radio"] { margin-top: 0.35rem; flex-shrink: 0; }
+    .choice-body { flex: 1; min-width: 0; }
+    .choice-body > label { margin: 0; font-weight: 400; }
     .choice strong { display: block; margin-bottom: 0.15rem; }
+    .offset-field {
+      margin-top: 0.75rem;
+      padding-top: 0.75rem;
+      border-top: 1px solid var(--border);
+    }
+    .offset-field label { margin-top: 0; }
+    .offset-field .muted { margin: 0.15rem 0 0.35rem; }
     footer { margin-top: 2.5rem; color: var(--muted); font-size: 0.9rem; }
-    esp-web-install-button { display: inline-block; }
+    esp-web-install-button { display: block; }
     esp-web-install-button button { font: inherit; }
+    esp-web-install-button [slot="unsupported"],
+    esp-web-install-button [slot="not-allowed"] {
+      display: block;
+      margin: 0;
+    }
   </style>
 </head>
 <body>
-  <h1>ESP Bin Patch</h1>
+  <h1>ESP Bin Patch <span id="app-version" class="version">0.1.3</span></h1>
   <p class="lead">
-    Patch secrets in an already-built <code>.bin</code>, repair ESP-IDF checksums,
+    Patch secrets and values in an already-built <code>.bin</code> or <code>.bin.espbinpatch</code>, repair ESP-IDF checksums,
     then install over USB with <strong>ESP Web Tools</strong>.
     Runs entirely in the browser — the firmware is not uploaded anywhere.
   </p>
 
   <h2>1. Firmware file</h2>
-  <label for="file">Firmware <code>.bin</code> from this computer</label>
-  <input id="file" type="file" accept=".bin,application/octet-stream">
-  <label for="fw-url">Or firmware URL</label>
+  <label for="file">Firmware <code>.bin</code> or <code>.bin.espbinpatch</code> from this computer</label>
+  <input id="file" type="file" accept=".bin,.espbinpatch,application/octet-stream">
   <p class="muted">
-    Use a merged <code>firmware.factory.bin</code> for a first-time install, or an app-only
-    <code>firmware.bin</code> to keep Wi-Fi and other saved settings.
-    GitHub <strong>Release download</strong> links cannot be loaded in the browser (CORS).
-    Put the file on <strong>GitHub Pages</strong> or in the git tag
-    (<code>raw.githubusercontent.com</code>), then paste that URL — or pass it as
-    <code>?fw=…</code> in the page link.
+    Same image as a <code>.bin</code>. The G32 mini display release workflow
+    attaches <code>.espbinpatch</code> (for example
+    <code>g32-display-mini-….factory.bin.espbinpatch</code>).
+    Use a merged factory image for a first-time install, or an app-only / OTA
+    image to keep Wi-Fi and other saved settings.
   </p>
-  <div class="actions" style="margin-top: 0">
-    <input id="fw-url" type="text" placeholder="https://sagdusmir.github.io/your-repo/firmware.factory.bin" style="flex: 1; min-width: 12rem">
-    <button type="button" class="secondary" id="load-fw">Load URL</button>
-  </div>
   <div id="file-info" class="box" hidden></div>
 
   <h2>2. Replacements</h2>
   <p class="muted">
-    <strong>auto</strong> tries UTF-8 text vs decoded Base64 (Home Assistant API key).
-    <strong>utf-8</strong> is literal text (SSID).
-    <strong>hex</strong> and <strong>base64</strong> decode first.
+    <span id="encoding-help">
+      <strong>auto</strong> tries UTF-8 text vs decoded Base64 (Home Assistant API key).
+      For that key, Old may be the 32-byte placeholder or its Base64; New is the
+      Home Assistant Base64 value.
+      <strong>utf-8</strong> is literal text (SSID).
+      <strong>hex</strong> and <strong>base64</strong> decode first.
+    </span>
     Replacement must be the same length or shorter.
   </p>
   <div id="replacements"></div>
-  <div class="actions">
+  <div class="actions" id="add-row-actions">
     <button type="button" class="secondary" id="add-row">Add replacement</button>
   </div>
-  <label for="pad">Pad byte (hex) for leftover space when new is shorter</label>
-  <input id="pad" type="text" value="00" maxlength="4" style="max-width: 6rem">
+  <div id="pad-field">
+    <label for="pad">Pad byte (hex) for leftover space when new is shorter</label>
+    <input id="pad" type="text" value="00" maxlength="4" style="max-width: 6rem">
+  </div>
 
-  <h2>3. Chip family</h2>
-  <p class="muted">Must match the board you will flash. Detected from the image header; override if needed.</p>
-  <label for="chip">ESP Web Tools chip family</label>
-  <select id="chip"></select>
+  <h2>3. Patch firmware</h2>
+  <div id="chip-field">
+    <p class="muted">Chip family must match the board you will flash. Detected from the image header; override if needed.</p>
+    <label for="chip">ESP Web Tools chip family</label>
+    <select id="chip"></select>
+  </div>
 
-  <div class="actions">
+  <div class="actions patch-actions">
     <button type="button" id="patch">Patch firmware</button>
     <button type="button" class="secondary" id="download" disabled>Download patched .bin</button>
-    <button type="button" class="secondary" id="self-test">Run self-test</button>
+    <span id="self-test-ui" class="self-test-ui">
+      <button type="button" class="secondary" id="self-test">Run self-test</button>
+      <span class="hint">Checks the patcher with fake firmware in this browser. Does not use your file or USB.</span>
+    </span>
   </div>
 
   <div id="status" class="status" hidden></div>
@@ -181,27 +247,33 @@
     <strong>Erase everything is required at least once</strong> — the first time you flash a blank
     or new board — so the bootloader is installed. After that, use keep-settings for updates.
   </p>
-  <label class="choice">
-    <input type="radio" name="flash-mode" value="keep" checked>
-    <span>
-      <strong>Keep saved settings</strong> — later updates, if the device already works.
-      Only the program is written. Wi-Fi and other saved values stay.
-      If the installer later asks “Erase device”, leave that box <strong>unchecked</strong>
-      (erasing would wipe the bootloader too, because this mode does not rewrite it).
-    </span>
-  </label>
-  <label class="choice">
-    <input type="radio" name="flash-mode" value="erase">
-    <span>
-      <strong>Erase everything</strong> — required at least initially (first flash on a new
-      or empty board), or if the device will not boot.
-      Writes a full image from the start of the flash. Wi-Fi and saved settings are lost.
-      Needs a merged factory file.
-    </span>
-  </label>
-  <label for="app-offset">Where the program lives on the chip (keep-settings only)</label>
-  <p class="muted">Almost always <code>10000</code>. Change this only if you know your board uses a different layout.</p>
-  <input id="app-offset" type="text" value="10000" maxlength="10" style="max-width: 8rem">
+  <div class="choice">
+    <input type="radio" name="flash-mode" value="keep" id="flash-keep" checked>
+    <div class="choice-body">
+      <label for="flash-keep">
+        <strong>Keep saved settings</strong> — later updates, if the device already works.
+        Only the program is written. Wi-Fi and other saved values stay.
+        If the installer later asks “Erase device”, leave that box <strong>unchecked</strong>
+        (erasing would wipe the bootloader too, because this mode does not rewrite it).
+      </label>
+      <div id="keep-offset" class="offset-field">
+        <label for="app-offset">Where the program lives on the chip</label>
+        <p class="muted">Almost always <code>10000</code>. Change this only if you know your board uses a different layout.</p>
+        <input id="app-offset" type="text" value="10000" maxlength="10" style="max-width: 8rem">
+      </div>
+    </div>
+  </div>
+  <div class="choice">
+    <input type="radio" name="flash-mode" value="erase" id="flash-erase">
+    <div class="choice-body">
+      <label for="flash-erase">
+        <strong>Erase everything</strong> — required at least initially (first flash on a new
+        or empty board), or if the device will not boot.
+        Writes a full image from the start of the flash. Wi-Fi and saved settings are lost.
+        Needs a merged factory file.
+      </label>
+    </div>
+  </div>
 
   <h2>5. Install</h2>
   <p class="muted">
@@ -210,14 +282,21 @@
   </p>
   <esp-web-install-button id="install">
     <button slot="activate" id="install-activate" disabled>Install patched firmware</button>
-    <span slot="unsupported">This browser does not support Web Serial. Open this page in Chrome or Edge.</span>
-    <span slot="not-allowed">Web Serial requires HTTPS (GitHub Pages) or localhost.</span>
+    <div slot="unsupported" class="status warn">This browser does not support Web Serial. Open this page in Chrome or Edge.</div>
+    <div slot="not-allowed" class="status warn">Web Serial requires HTTPS (GitHub Pages) or localhost.</div>
   </esp-web-install-button>
   <p id="install-hint" class="hint"></p>
   <div id="share-status" class="status" hidden></div>
-  <div class="actions">
+  <div class="actions share-actions">
     <button type="button" class="secondary" id="copy-link">Copy share link</button>
+    <label class="inline-check" for="lock-form" id="lock-form-label">
+      <input type="checkbox" id="lock-form">
+      Lock placeholders
+    </label>
   </div>
+  <p class="muted" id="lock-hint">
+    When <strong>Lock placeholders</strong> is on, recipients see Old as read-only; mode, pad, chip family, and add/remove are hidden.
+  </p>
   <p class="muted">
     <strong>Warning:</strong> the share link includes your replacements (Wi-Fi names, API keys, passwords).
     Treat it like a secret — do not post it in a public README, issue, or chat unless those values are meant to be public.
@@ -239,7 +318,7 @@
         <label>New</label>
         <input type="text" class="new" placeholder="replacement" autocomplete="off">
       </div>
-      <div>
+      <div class="mode-col">
         <label>Mode</label>
         <select class="mode">
           <option value="auto">auto</option>
@@ -248,7 +327,7 @@
           <option value="base64">base64</option>
         </select>
       </div>
-      <div>
+      <div class="remove-col">
         <button type="button" class="secondary remove">Remove</button>
       </div>
     </div>
@@ -260,7 +339,7 @@
      * Browser port of espbinpatch.py: in-place firmware replace + ESP-IDF checksum repair.
      */
 
-    const VERSION = "0.1.2";
+    const VERSION = "0.1.3";
 
     const IMAGE_MAGIC = 0xe9;
     const CHECKSUM_INIT = 0xef;
@@ -760,17 +839,31 @@
       }
 
       const { name, bytes: oldBytes } = matched[0];
-      let newBytes;
-      if (name === "utf-8") {
-        newBytes = decodeUtf8(newValue);
-      } else if (name === "base64") {
-        try {
-          newBytes = decodeB64(newValue);
-        } catch (err) {
-          throw new PatchError("INVALID_BASE64", `--new is not valid base64: ${err.message}`);
+      const decodeNew = (encoding) => {
+        if (encoding === "utf-8") return decodeUtf8(newValue);
+        if (encoding === "base64") {
+          try {
+            return decodeB64(newValue);
+          } catch (err) {
+            throw new PatchError("INVALID_BASE64", `--new is not valid base64: ${err.message}`);
+          }
         }
-      } else {
-        throw new PatchError("INTERNAL", `unknown encoding ${name}`);
+        throw new PatchError("INTERNAL", `unknown encoding ${encoding}`);
+      };
+
+      const newBytes = decodeNew(name);
+      if (newBytes.length <= oldBytes.length) {
+        return { encoding: name, oldBytes, newBytes };
+      }
+
+      const other = name === "utf-8" ? "base64" : "utf-8";
+      try {
+        const alt = decodeNew(other);
+        if (alt.length && alt.length <= oldBytes.length) {
+          return { encoding: `${name}→${other}`, oldBytes, newBytes: alt };
+        }
+      } catch (err) {
+        if (!(err instanceof PatchError && err.code === "INVALID_BASE64")) throw err;
       }
       return { encoding: name, oldBytes, newBytes };
     }
@@ -1036,6 +1129,48 @@
       }
       assert(ambiguous, "ambiguous encoding must fail auto-detect");
 
+      const placeholderAscii = "ESPBINPATCH_API_ENCRYPTION_KEY__";
+      const placeholderRaw = decodeUtf8(placeholderAscii);
+      const placeholderB64 = encodeB64(placeholderRaw);
+      const haNewB64 = "YcM9Kcc+DRDHfISFcF8FlDN0WuanM1LJV3duK/PugZA=";
+      const haNewRaw = decodeB64(haNewB64);
+      assert(placeholderRaw.length === 32 && haNewRaw.length === 32);
+      const haPayload = new Uint8Array(16 + placeholderRaw.length + 16);
+      haPayload.fill(0, 0, 16);
+      haPayload.set(placeholderRaw, 16);
+      haPayload.fill(0xff, 16 + placeholderRaw.length);
+      assert(findBytes(haPayload, decodeUtf8(placeholderB64)) < 0);
+
+      const autoPlaceholder = resolveAutoEncoding(haPayload, placeholderAscii, haNewB64);
+      assert(autoPlaceholder.encoding === "utf-8→base64", autoPlaceholder.encoding);
+      assert(bytesEqual(autoPlaceholder.oldBytes, placeholderRaw));
+      assert(bytesEqual(autoPlaceholder.newBytes, haNewRaw));
+
+      const autoPlaceholderB64 = resolveAutoEncoding(haPayload, placeholderB64, haNewB64);
+      assert(autoPlaceholderB64.encoding === "base64");
+      assert(bytesEqual(autoPlaceholderB64.oldBytes, autoPlaceholder.oldBytes));
+      assert(bytesEqual(autoPlaceholderB64.newBytes, autoPlaceholder.newBytes));
+
+      const fromAscii = new Uint8Array(haPayload);
+      replaceBytes(fromAscii, autoPlaceholder.oldBytes, autoPlaceholder.newBytes);
+      const fromB64 = new Uint8Array(haPayload);
+      replaceBytes(fromB64, autoPlaceholderB64.oldBytes, autoPlaceholderB64.newBytes);
+      assert(bytesEqual(fromAscii, fromB64), "both HA placeholder forms must patch identically");
+      assert(findBytes(fromAscii, haNewRaw) >= 0);
+      assert(findBytes(fromAscii, placeholderRaw) < 0);
+
+      const keepUtf8 = resolveAutoEncoding(decodeUtf8("abcdefghij"), "abcdefghij", "YWJj");
+      assert(keepUtf8.encoding === "utf-8");
+      assert(bytesEqual(keepUtf8.newBytes, decodeUtf8("YWJj")));
+
+      const tooLong = resolveAutoEncoding(
+        haPayload,
+        placeholderAscii,
+        "this-is-not-valid-base64-and-is-way-too-long!!",
+      );
+      assert(tooLong.encoding === "utf-8");
+      assert(tooLong.newBytes.length > tooLong.oldBytes.length);
+
       const patched = await patchFirmware(await buildTestImage(payload), [
         { old: "HELLO-ESP-FIRMWARE-TEST!!", new: "WORLD-ESP-FIRMWARE-TEST!!", mode: "utf-8" },
       ]);
@@ -1046,7 +1181,6 @@
 
     const fileInput = document.getElementById("file");
     const fileInfo = document.getElementById("file-info");
-    const fwUrlInput = document.getElementById("fw-url");
     const replacementsEl = document.getElementById("replacements");
     const rowTemplate = document.getElementById("row-template");
     const padInput = document.getElementById("pad");
@@ -1065,8 +1199,6 @@
     let patchedBytes = null;
     let firmwareBlobUrl = null;
     let manifestBlobUrl = null;
-    let chipFromQuery = false;
-    let offsetFromQuery = false;
 
     for (const family of CHIP_FAMILIES) {
       const option = document.createElement("option");
@@ -1076,10 +1208,24 @@
     }
     chipSelect.value = "ESP32-C6";
 
+    function isFormLocked() {
+      return document.getElementById("lock-form").checked;
+    }
+
+    function setFormLocked(on) {
+      document.getElementById("lock-form").checked = on;
+      document.body.classList.toggle("form-locked", on);
+      for (const input of replacementsEl.querySelectorAll(".old")) {
+        input.readOnly = on;
+      }
+    }
+
     function addRow(oldValue = "", newValue = "", mode = "auto") {
       const node = rowTemplate.content.cloneNode(true);
       const row = node.querySelector(".row");
-      row.querySelector(".old").value = oldValue;
+      const oldInput = row.querySelector(".old");
+      oldInput.value = oldValue;
+      oldInput.readOnly = isFormLocked();
       row.querySelector(".new").value = newValue;
       row.querySelector(".mode").value = mode;
       row.querySelector(".remove").addEventListener("click", () => {
@@ -1091,7 +1237,11 @@
 
     addRow();
 
+    document.getElementById("app-version").textContent = VERSION;
     document.getElementById("add-row").addEventListener("click", () => addRow());
+    document.getElementById("lock-form").addEventListener("change", () => {
+      setFormLocked(isFormLocked());
+    });
 
     function showStatus(kind, text) {
       statusEl.hidden = false;
@@ -1160,51 +1310,14 @@
       disableInstall("Patch the firmware before installing.");
     }
 
-    function parseGithubReleaseUrl(url) {
-      try {
-        const parsed = new URL(url);
-        if (parsed.hostname !== "github.com") return null;
-        const parts = parsed.pathname.split("/").filter(Boolean);
-        // owner/repo/releases/download/tag/file
-        if (parts.length >= 6 && parts[2] === "releases" && parts[3] === "download") {
-          return { owner: parts[0], repo: parts[1], tag: decodeURIComponent(parts[4]), file: decodeURIComponent(parts.slice(5).join("/")) };
-        }
-        // owner/repo/releases/latest/download/file
-        if (parts.length >= 6 && parts[2] === "releases" && parts[3] === "latest" && parts[4] === "download") {
-          return { owner: parts[0], repo: parts[1], tag: null, file: decodeURIComponent(parts.slice(5).join("/")) };
-        }
-        return null;
-      } catch {
-        return null;
-      }
-    }
-
-    function firmwareUrlCandidates(url) {
-      const list = [];
-      const add = (candidate) => {
-        if (candidate && !list.includes(candidate)) list.push(candidate);
-      };
-      const release = parseGithubReleaseUrl(url);
-      if (release) {
-        add(`https://${release.owner}.github.io/${release.repo}/${release.file}`);
-        add(`https://${release.owner}.github.io/${release.repo}/docs/${release.file}`);
-        if (release.tag) {
-          add(`https://raw.githubusercontent.com/${release.owner}/${release.repo}/${release.tag}/${release.file}`);
-          add(`https://cdn.jsdelivr.net/gh/${release.owner}/${release.repo}@${release.tag}/${release.file}`);
-        }
-      }
-      add(url);
-      return list;
-    }
-
-    async function applyFirmwareBytes(bytes, name, options = {}) {
+    async function applyFirmwareBytes(bytes, name) {
       originalBytes = bytes;
       originalName = name || "firmware.bin";
       firmwareInfo = await describeFirmware(originalBytes);
-      if (!options.keepChip && firmwareInfo.chipFamily) {
+      if (firmwareInfo.chipFamily) {
         chipSelect.value = firmwareInfo.chipFamily;
       }
-      if (!options.keepOffset && firmwareInfo.appPartition) {
+      if (firmwareInfo.appPartition) {
         document.getElementById("app-offset").value = firmwareInfo.appPartition.offset.toString(16);
       }
       renderFileInfo(firmwareInfo, originalBytes);
@@ -1213,63 +1326,6 @@
         return false;
       }
       return true;
-    }
-
-    async function loadFirmwareFromUrl(url, options = {}) {
-      const trimmed = String(url || "").trim();
-      if (!trimmed) {
-        showStatus("error", "Enter a firmware URL, or choose a file on this computer.");
-        return false;
-      }
-      let parsed;
-      try {
-        parsed = new URL(trimmed);
-      } catch {
-        showStatus("error", "That firmware URL is not valid.");
-        return false;
-      }
-      if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
-        showStatus("error", "Firmware URL must start with https:// (or http:// on localhost).");
-        return false;
-      }
-      fwUrlInput.value = trimmed;
-      resetPatchState();
-      originalBytes = null;
-      firmwareInfo = null;
-      fileInfo.hidden = true;
-      const candidates = firmwareUrlCandidates(trimmed);
-      const errors = [];
-      for (const candidate of candidates) {
-        try {
-          const response = await fetch(candidate, { redirect: "follow" });
-          if (!response.ok) {
-            errors.push(`${candidate} → HTTP ${response.status}`);
-            continue;
-          }
-          const buffer = new Uint8Array(await response.arrayBuffer());
-          if (buffer.length < 24) {
-            errors.push(`${candidate} → file too small (${buffer.length} bytes)`);
-            continue;
-          }
-          const name = decodeURIComponent(candidate.split("/").pop() || "firmware.bin");
-          const ok = await applyFirmwareBytes(buffer, name, options);
-          if (!ok) return false;
-          const via = candidate === trimmed ? candidate : `${candidate} (Release download links are blocked in the browser; used this instead)`;
-          showStatus("ok", `Loaded ${buffer.length} bytes from ${via}`);
-          return true;
-        } catch (err) {
-          errors.push(`${candidate} → ${err.message || err}`);
-        }
-      }
-      showStatus(
-        "error",
-        "Could not download that firmware in the browser.\n\n" +
-          "GitHub Release “download” links (github.com/…/releases/download/…) are blocked by CORS. " +
-          "Put the .bin on GitHub Pages (https://USER.github.io/REPO/firmware.factory.bin) or in the git tag " +
-          "(raw.githubusercontent.com / jsDelivr), then use that URL.\n\nTried:\n" +
-          errors.join("\n"),
-      );
-      return false;
     }
 
     fileInput.addEventListener("change", async () => {
@@ -1286,11 +1342,6 @@
       } catch (err) {
         showStatus("error", err.message || String(err));
       }
-    });
-
-    document.getElementById("load-fw").addEventListener("click", async () => {
-      hideStatus();
-      await loadFirmwareFromUrl(fwUrlInput.value);
     });
 
     function collectReplacements() {
@@ -1312,6 +1363,10 @@
     function flashMode() {
       const picked = document.querySelector('input[name="flash-mode"]:checked');
       return picked ? picked.value : "keep";
+    }
+
+    function syncKeepOffsetVisibility() {
+      document.getElementById("keep-offset").hidden = flashMode() !== "keep";
     }
 
     function enableInstall(bytes, chipFamily) {
@@ -1396,7 +1451,7 @@
       resultEl.hidden = true;
       resetPatchState();
       if (!originalBytes) {
-        showStatus("error", "Choose a firmware .bin first.");
+        showStatus("error", "Choose a firmware .bin or .espbinpatch first.");
         return false;
       }
       let replacements;
@@ -1463,7 +1518,17 @@
     chipSelect.addEventListener("change", refreshInstall);
     document.getElementById("app-offset").addEventListener("change", refreshInstall);
     for (const radio of document.querySelectorAll('input[name="flash-mode"]')) {
-      radio.addEventListener("change", refreshInstall);
+      radio.addEventListener("change", () => {
+        syncKeepOffsetVisibility();
+        refreshInstall();
+      });
+    }
+
+    function firmwareStem(name) {
+      const stem = String(name || "firmware")
+        .replace(/\.espbinpatch$/i, "")
+        .replace(/\.bin$/i, "");
+      return stem || "firmware";
     }
 
     downloadBtn.addEventListener("click", () => {
@@ -1471,9 +1536,8 @@
       const blob = new Blob([patchedBytes], { type: "application/octet-stream" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
-      const base = originalName.replace(/\.bin$/i, "");
       a.href = url;
-      a.download = `${base}.patched.bin`;
+      a.download = `${firmwareStem(originalName)}.patched.bin`;
       a.click();
       URL.revokeObjectURL(url);
     });
@@ -1490,12 +1554,11 @@
 
     function buildShareLink() {
       const params = new URLSearchParams();
-      const fw = fwUrlInput.value.trim();
-      if (fw) params.set("fw", fw);
       params.set("chip", chipSelect.value);
       params.set("flash", flashMode());
       params.set("pad", padInput.value.trim() || "00");
       params.set("offset", document.getElementById("app-offset").value.trim() || "10000");
+      if (isFormLocked()) params.set("lock", "1");
       let replacements = [];
       try {
         replacements = collectReplacements();
@@ -1530,9 +1593,8 @@
       }
     });
 
-    async function applyQueryParams() {
+    function applyQueryParams() {
       const params = new URLSearchParams(location.search);
-      const fw = params.get("fw");
       const chip = params.get("chip");
       const flash = params.get("flash");
       const pad = params.get("pad");
@@ -1543,7 +1605,6 @@
 
       if (chip && CHIP_FAMILIES.includes(chip)) {
         chipSelect.value = chip;
-        chipFromQuery = true;
       }
       if (flash === "keep" || flash === "erase") {
         const radio = document.querySelector(`input[name="flash-mode"][value="${flash}"]`);
@@ -1552,7 +1613,6 @@
       if (pad != null && pad !== "") padInput.value = pad;
       if (offset != null && offset !== "") {
         document.getElementById("app-offset").value = offset;
-        offsetFromQuery = true;
       }
       if (olds.length) {
         replacementsEl.innerHTML = "";
@@ -1562,21 +1622,15 @@
           addRow(olds[i], news[i] || "", mode);
         }
       }
-      if (fw) {
-        const loaded = await loadFirmwareFromUrl(fw, {
-          keepChip: chipFromQuery,
-          keepOffset: offsetFromQuery,
-        });
-        const patchFlag = params.get("patch");
-        const shouldPatch =
-          patchFlag === "1" ||
-          (patchFlag !== "0" && loaded && olds.length > 0);
-        if (loaded && shouldPatch) await applyPatch();
+      if (params.get("lock") === "1") {
+        setFormLocked(true);
+        document.body.classList.add("lock-from-query");
       }
     }
 
     disableInstall("Patch the firmware before installing.");
     applyQueryParams();
+    syncKeepOffsetVisibility();
   </script>
 </body>
 </html>

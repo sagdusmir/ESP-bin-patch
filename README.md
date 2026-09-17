@@ -50,11 +50,20 @@ Use **exactly one** old/new pair. After decoding, every pair does the same byte 
 
 ESPHome's `api.encryption.key` is a Base64 string in YAML / Home Assistant. The compiled image stores the **decoded 32 raw bytes**, not that 44-character ASCII string.
 
+`--old-auto` looks for the UTF-8 bytes of Old **or** the decoded Base64 bytes, whichever unique needle exists. `--new-auto` uses that same encoding when the replacement fits. If New is **too long** in that encoding, auto tries the other encoding when it is valid and fits.
+
+That is why either of these works as Old when New is your Home Assistant key:
+
+| Old | What is in the `.bin` |
+|---|---|
+| `ESPBINPATCH_API_ENCRYPTION_KEY__` | the 32 ASCII bytes (typical release placeholder) |
+| `RVNQQklOUEFUQ0hfQVBJX0VOQ1JZUFRJT05fS0VZX18=` | YAML / `secrets.yaml` Base64 of those same 32 bytes |
+
 - `--old 'YcM9…ugZA='` looks for the **text** of the key (usually a miss)
 - `--old-b64 'YcM9…ugZA='` looks for the **32-byte key**
 - `--old-auto 'YcM9…ugZA='` tries both and uses the unique hit
 
-`--new-auto` is decoded with the **same** encoding that matched `--old-auto`. If both representations are present, the script exits and tells you to pass `--old` or `--old-b64` explicitly.
+If both representations are present, the script exits and tells you to pass `--old` or `--old-b64` explicitly. Invalid `--new-auto` Base64 still errors when Old matched as Base64.
 
 ## Usage
 
@@ -80,27 +89,24 @@ When `--new` is shorter than `--old`, leftover bytes are padded. `--pad` is a he
 
 ### Prefilled links
 
-Pass query parameters so a README can open the demo already filled in. The user still clicks **Install** (USB needs a click).
+Pass query parameters so a README can open the demo already filled in. Choose the firmware file on the page (a local `.bin` or `.espbinpatch`). The user still clicks **Install** (USB needs a click).
 
 | Param | Meaning |
 |---|---|
-| `fw` | HTTPS URL of the `.bin` |
 | `chip` | `ESP32-C6`, `ESP32`, … |
 | `flash` | `keep` or `erase` |
 | `pad` | pad byte (`00`) |
-| `offset` | app offset hex (`10000`) |
+| `offset` | app offset hex (`10000`); keep-settings only |
 | `old`, `new`, `enc` | one replacement; repeat the trio for more (`enc`: `auto`, `utf-8`, `hex`, `base64`) |
-| `patch` | `1` run Patch after load (default when `fw` and `old` are set); `0` to skip |
+| `lock` | `1` simplified recipient form (Old read-only; mode, pad, chip family, add/remove hidden) |
 
 Example:
 
 ```
-https://sagdusmir.github.io/ESP-bin-patch/?fw=https://sagdusmir.github.io/G32-Display-320x172-BT/firmware.factory.bin&chip=ESP32-C6&flash=erase&old=PLACEHOLDER_KEY&new=YOUR_KEY&enc=auto
+https://sagdusmir.github.io/ESP-bin-patch/?chip=ESP32-C6&flash=erase&old=PLACEHOLDER_KEY&new=YOUR_KEY&enc=auto
 ```
 
-**GitHub Release download URLs cannot be fetched in the browser** (CORS). Use **GitHub Pages** (`https://USER.github.io/REPO/firmware.factory.bin`) or a file **in the git tag** (`raw.githubusercontent.com` / jsDelivr). If you pass a `…/releases/download/TAG/file.bin` link, the demo tries those CORS-friendly URLs automatically.
-
-The page has **Copy share link** to build this from the current form. That link includes replacement values (Wi-Fi names, API keys, passwords) — do not publish it unless those secrets are meant to be public.
+The page has **Copy share link** to build this from the current form. Check **Lock placeholders** to add `lock=1` so recipients get a simpler form (Old is visible but not editable; the lock checkbox is hidden for them). Copying the link from a `lock=1` page keeps `lock=1`. That link includes replacement values (Wi-Fi names, API keys, passwords) — do not publish it unless those secrets are meant to be public.
 
 Locally:
 
@@ -112,20 +118,27 @@ Then open `http://localhost:8000/index.html` and use **Run self-test**.
 
 ## Examples
 
-Home Assistant API key — paste the YAML/HA value and let auto-detect pick decoded Base64:
+Home Assistant API key — Old may be the 32-byte placeholder **or** its Base64. New is the Home Assistant / ESPHome key:
 
 ```bash
 python3 espbinpatch.py firmware.factory.bin \
-    --old-auto 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=' \
+    --old-auto 'ESPBINPATCH_API_ENCRYPTION_KEY__' \
     --new-auto 'A1fyywUUE1DWzu0OzhDkyc4yAnfGwyEfsVNvhytrU6k=' \
     -o patched.factory.bin
 ```
 
-Same patch with the encoding forced:
+```bash
+python3 espbinpatch.py firmware.factory.bin \
+    --old-auto 'RVNQQklOUEFUQ0hfQVBJX0VOQ1JZUFRJT05fS0VZX18=' \
+    --new-auto 'A1fyywUUE1DWzu0OzhDkyc4yAnfGwyEfsVNvhytrU6k=' \
+    -o patched.factory.bin
+```
+
+Same patch with the encoding forced (Old must be Base64 of the 32 bytes in the image):
 
 ```bash
 python3 espbinpatch.py firmware.factory.bin \
-    --old-b64 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=' \
+    --old-b64 'RVNQQklOUEFUQ0hfQVBJX0VOQ1JZUFRJT05fS0VZX18=' \
     --new-b64 'A1fyywUUE1DWzu0OzhDkyc4yAnfGwyEfsVNvhytrU6k=' \
     -o patched.factory.bin
 ```
@@ -154,6 +167,7 @@ python3 espbinpatch.py firmware.factory.bin --verify
 
 - Everything that needs a **longer** replacement cannot be patched this way — rebuild the firmware instead
 - `--old-auto` only distinguishes **UTF-8 vs Base64**. Hex is `--old-hex` only
+- `--new-auto` uses Old's encoding when the replacement fits. If that New is too long, auto tries the other encoding when it is valid and fits
 - If the UTF-8 form **and** the decoded Base64 form both exist in the file, `--old-auto` refuses to guess
 - The needle is searched in the **whole file**, not only inside ESP-IDF image payloads
 - Patching the wrong span, or changing an API key without updating Home Assistant, will leave a device that boots but cannot connect — or one that does not boot at all

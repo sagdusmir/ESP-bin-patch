@@ -48,7 +48,7 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
-__version__ = "0.2.0"
+__version__ = "0.2.1"
 
 IMAGE_MAGIC = 0xE9
 CHECKSUM_INIT = 0xEF
@@ -368,8 +368,29 @@ def _format_hit_offsets(hits: list[int], *, limit: int = 8) -> str:
     return shown
 
 
+def _decode_new_auto(encoding: str, new: str) -> bytes:
+    """Decode ``new`` for --new-auto. Invalid Base64 is ``AutoEncodingError``."""
+    if encoding == "utf-8":
+        return new.encode("utf-8")
+    if encoding == "base64":
+        try:
+            return decode_b64(new)
+        except argparse.ArgumentTypeError as exc:
+            raise AutoEncodingError(
+                f"--new-auto is not valid base64: {exc}",
+                exit_code=2,
+            ) from exc
+    raise AutoEncodingError(f"internal error: unknown encoding {encoding!r}", exit_code=2)
+
+
 def resolve_auto_encoding(data: bytes, old: str, new: str) -> tuple[str, bytes, bytes]:
-    """Pick UTF-8 or Base64 by which ``old`` needle exists in ``data``."""
+    """Pick UTF-8 or Base64 by which ``old`` needle exists in ``data``.
+
+    ``new`` uses that same encoding when the replacement fits. If it is too
+    long, the other encoding is used when it is valid and fits — so a 32-byte
+    ASCII HA-key placeholder as Old can take a 44-character Base64 key as New.
+    Invalid Base64 for ``new`` still errors when Old matched as Base64.
+    """
     candidates = [(name, needle) for name, needle in try_decode_candidates(old) if needle]
     if not candidates:
         raise AutoEncodingError("replacement needle must not be empty", exit_code=2)
@@ -398,18 +419,17 @@ def resolve_auto_encoding(data: bytes, old: str, new: str) -> tuple[str, bytes, 
         )
 
     name, old_bytes, _hits = matched[0]
-    if name == "utf-8":
-        new_bytes = new.encode("utf-8")
-    elif name == "base64":
-        try:
-            new_bytes = decode_b64(new)
-        except argparse.ArgumentTypeError as exc:
-            raise AutoEncodingError(
-                f"--new-auto is not valid base64: {exc}",
-                exit_code=2,
-            ) from exc
-    else:
-        raise AutoEncodingError(f"internal error: unknown encoding {name!r}", exit_code=2)
+    new_bytes = _decode_new_auto(name, new)
+    if len(new_bytes) <= len(old_bytes):
+        return name, old_bytes, new_bytes
+
+    other = "base64" if name == "utf-8" else "utf-8"
+    try:
+        alt = _decode_new_auto(other, new)
+    except AutoEncodingError:
+        return name, old_bytes, new_bytes
+    if alt and len(alt) <= len(old_bytes):
+        return f"{name}→{other}", old_bytes, alt
     return name, old_bytes, new_bytes
 
 
@@ -545,6 +565,51 @@ def run_self_test() -> int:
     else:
         raise AssertionError("invalid --new-auto must fail")
 
+    # HA api.encryption.key placeholder: 32 ASCII bytes in the image, or the
+    # YAML Base64 of those bytes as Old; New is the usual 44-char HA key.
+    placeholder_ascii = "ESPBINPATCH_API_ENCRYPTION_KEY__"
+    placeholder_raw = placeholder_ascii.encode("ascii")
+    placeholder_b64 = base64.b64encode(placeholder_raw).decode("ascii")
+    ha_new_b64 = "YcM9Kcc+DRDHfISFcF8FlDN0WuanM1LJV3duK/PugZA="
+    ha_new_raw = base64.b64decode(ha_new_b64, validate=True)
+    assert len(placeholder_raw) == 32 and len(ha_new_raw) == 32
+    ha_payload = b"\x00" * 16 + placeholder_raw + b"\xff" * 16
+    assert placeholder_b64.encode("ascii") not in ha_payload
+
+    enc_ascii, old_ascii, new_ascii = resolve_auto_encoding(
+        ha_payload, placeholder_ascii, ha_new_b64
+    )
+    assert enc_ascii == "utf-8→base64", enc_ascii
+    assert old_ascii == placeholder_raw
+    assert new_ascii == ha_new_raw
+
+    enc_b64, old_from_b64, new_from_b64 = resolve_auto_encoding(
+        ha_payload, placeholder_b64, ha_new_b64
+    )
+    assert enc_b64 == "base64", enc_b64
+    assert old_from_b64 == old_ascii
+    assert new_from_b64 == new_ascii
+
+    patched_from_ascii = bytearray(ha_payload)
+    replace_bytes(patched_from_ascii, old_ascii, new_ascii)
+    patched_from_b64 = bytearray(ha_payload)
+    replace_bytes(patched_from_b64, old_from_b64, new_from_b64)
+    assert patched_from_ascii == patched_from_b64
+    assert ha_new_raw in patched_from_ascii
+    assert placeholder_raw not in patched_from_ascii
+
+    # Same-encoding New already fits: do not switch to Base64.
+    name, old_b, new_b = resolve_auto_encoding(b"abcdefghij", "abcdefghij", "YWJj")
+    assert name == "utf-8", name
+    assert new_b == b"YWJj"
+
+    # Too-long New that is not Base64 stays utf-8 so padded_replacement rejects.
+    name, old_b, new_b = resolve_auto_encoding(
+        ha_payload, placeholder_ascii, "this-is-not-valid-base64-and-is-way-too-long!!"
+    )
+    assert name == "utf-8", name
+    assert len(new_b) > len(old_b)
+
     ns = parse_args(["fw.bin", "--old", key_b64, "--new", key_b64])
     repl = resolve_replacement(ns, key_raw + key_b64.encode("ascii"))
     assert repl is not None
@@ -574,6 +639,7 @@ def run_self_test() -> int:
 
     auto_payload = b"\x00" * 16 + key_raw + ssid.encode("utf-8") + b"\xff" * 16
     image_bytes = build_test_image(auto_payload)
+    ha_image = build_test_image(ha_payload)
     with tempfile.NamedTemporaryFile(suffix=".bin", delete=False) as handle:
         tmp = Path(handle.name)
     try:
@@ -582,6 +648,13 @@ def run_self_test() -> int:
         assert main([str(tmp), "--old-auto", ssid, "--new-auto", ssid_new, "--dry-run"]) == 0
         assert main([str(tmp), "--old", ssid, "--new", ssid_new, "--dry-run"]) == 0
         assert main([str(tmp), "--old-b64", key_b64, "--new-b64", new_b64, "--dry-run"]) == 0
+        tmp.write_bytes(ha_image)
+        assert main(
+            [str(tmp), "--old-auto", placeholder_ascii, "--new-auto", ha_new_b64, "--dry-run"]
+        ) == 0
+        assert main(
+            [str(tmp), "--old-auto", placeholder_b64, "--new-auto", ha_new_b64, "--dry-run"]
+        ) == 0
     finally:
         tmp.unlink(missing_ok=True)
 
@@ -602,7 +675,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         "firmware",
         nargs="?",
         type=Path,
-        help="Input .bin (firmware.bin or firmware.factory.bin)",
+        help="Input firmware image (.bin or .espbinpatch; firmware.bin or firmware.factory.bin)",
     )
     parser.add_argument("-o", "--output", type=Path, help="Write patched image here")
     parser.add_argument("--in-place", action="store_true", help="Overwrite the input file")
