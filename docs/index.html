@@ -179,6 +179,9 @@
       display: block;
       margin: 0;
     }
+    body.skip-erase-prompt ewt-install-dialog[state="ASK_ERASE"] {
+      visibility: hidden;
+    }
   </style>
 </head>
 <body>
@@ -254,8 +257,7 @@
       <label for="flash-keep">
         <strong>Keep saved settings</strong> — later updates, if the device already works.
         Only the program is written. Wi-Fi and other saved values stay.
-        If the installer later asks “Erase device”, leave that box <strong>unchecked</strong>
-        (erasing would wipe the bootloader too, because this mode does not rewrite it).
+        The installer will not erase the device (erasing would wipe the bootloader too).
       </label>
       <div id="keep-offset" class="offset-field">
         <label for="app-offset">Where the program lives on the chip</label>
@@ -1262,7 +1264,11 @@
       manifestBlobUrl = null;
     }
 
+    let skipErasePrompt = false;
+
     function disableInstall(reason) {
+      skipErasePrompt = false;
+      document.body.classList.remove("skip-erase-prompt");
       installActivate.disabled = true;
       installHint.textContent = reason || "";
       revokeBlobs();
@@ -1386,12 +1392,35 @@
       }
     }
 
+    function trySkipErasePrompt() {
+      if (!skipErasePrompt) return;
+      const dialog = document.querySelector("ewt-install-dialog");
+      if (!dialog || dialog.getAttribute("state") !== "ASK_ERASE") return;
+      const root = dialog.shadowRoot;
+      if (!root || !root.querySelector("ew-checkbox")) return;
+      const next = [...root.querySelectorAll("ew-text-button")].find(
+        (el) => (el.textContent || "").replace(/\s+/g, " ").trim() === "Next",
+      );
+      if (next) next.click();
+    }
+
+    const erasePromptObserver = new MutationObserver(() => trySkipErasePrompt());
+    erasePromptObserver.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["state"],
+    });
+
     function enableInstall(bytes, chipFamily) {
       const keep = flashMode() === "keep";
       const info = firmwareInfo || {};
       let partBytes = bytes;
       let partOffset = 0;
       let hint;
+
+      skipErasePrompt = keep;
+      document.body.classList.toggle("skip-erase-prompt", keep);
 
       if (keep) {
         const extracted = extractAppImage(bytes);
@@ -1412,7 +1441,7 @@
         partOffset = offset;
         hint =
           `Ready: only the program will be written at ${hexOffset(partOffset)} (${chipFamily}). ` +
-          "Saved settings stay. If the installer asks “Erase device”, leave it unchecked.";
+          "Saved settings stay. The installer will not erase the device.";
         installBtn.overrides = {
           checkSameFirmware() {
             return true;
@@ -1444,8 +1473,8 @@
       const fwBlob = new Blob([partBytes], { type: "application/octet-stream" });
       firmwareBlobUrl = URL.createObjectURL(fwBlob);
       const manifest = {
-        name: "Patched firmware",
-        version: "patched",
+        name: "the patched firmware",
+        version: "",
         new_install_prompt_erase: true,
         new_install_improv_wait_time: keep ? 3 : 0,
         builds: [
