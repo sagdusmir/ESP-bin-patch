@@ -291,7 +291,7 @@
   <p id="install-hint" class="hint"></p>
   <div id="share-status" class="status" hidden></div>
   <div class="actions share-actions">
-    <button type="button" class="secondary" id="copy-link">Copy share link</button>
+    <button type="button" class="secondary" id="copy-link">Copy backup link</button>
     <label class="inline-check" for="lock-form" id="lock-form-label">
       <input type="checkbox" id="lock-form">
       Lock placeholders
@@ -301,7 +301,7 @@
     When <strong>Lock placeholders</strong> is on, recipients see Old as read-only; mode, pad, chip family, and add/remove are hidden.
   </p>
   <p class="muted">
-    <strong>Warning:</strong> the share link includes your replacements (Wi-Fi names, API keys, passwords).
+    <strong>Warning:</strong> the backup link includes your replacements (Wi-Fi names, API keys, passwords).
     Treat it like a secret — do not post it in a public README, issue, or chat unless those values are meant to be public.
   </p>
 
@@ -1632,7 +1632,7 @@
         await navigator.clipboard.writeText(link);
         showShareStatus(
           "warn",
-          "Share link copied. It contains your replacements (keys, passwords, SSIDs). Do not share it publicly unless that is intentional.",
+          "Backup link copied. It contains your replacements (keys, passwords, SSIDs). Do not share it publicly unless that is intentional.",
         );
       } catch {
         showShareStatus("warn", `Copy failed. Link:\n${link}`);
