@@ -78,8 +78,9 @@ Pass query parameters so a README can open the demo already filled in. Choose th
 | `flash` | `keep` or `erase` |
 | `pad` | pad byte (`00`) |
 | `offset` | app offset hex (`10000`); keep-settings only |
+| `filename` | last used firmware filename (shown under the picker; still choose the file locally) |
 | `old`, `new`, `enc` | one replacement; repeat the trio for more (`enc`: `auto`, `utf-8`, `hex`, `base64`) |
-| `lock` | `1` simplified recipient form (Old read-only; mode, pad, chip family, add/remove hidden) |
+| `lock` | `1` simplified recipient form (Old read-only; mode, pad, add/remove hidden; chip family visible and read-only) |
 
 Example:
 
@@ -87,7 +88,7 @@ Example:
 https://sagdusmir.github.io/ESP-bin-patch/?chip=ESP32-C6&flash=erase&old=PLACEHOLDER_KEY&new=YOUR_KEY&enc=auto
 ```
 
-The page has "**Copy backup link**" that copies a link with all current values to your clipboard for later use. Check "**Lock placeholders**" to add `lock=1` so the link will open the tool width simplified options to mess with (Old is visible but not editable; the lock checkbox is hidden for them, chip is fixed, pad is hidden…). Copying the link from a `lock=1` page keeps `lock=1`. That link includes replacement values (Wi-Fi names, API keys, passwords) — do not publish it unless those secrets are meant to be public.
+The page has "**Copy backup link**" that copies a link with all current values to your clipboard for later use. Check "**Lock placeholders**" to add `lock=1` so the link will open the tool width simplified options to mess with (Old is visible but not editable; the lock checkbox is hidden for them, chip is visible and read-only, pad is hidden…). Copying the link from a `lock=1` page keeps `lock=1`. That link includes replacement values (Wi-Fi names, API keys, passwords) — do not publish it unless those secrets are meant to be public.
 
 Locally:
 

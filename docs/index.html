@@ -69,13 +69,23 @@
     body.form-locked .remove-col,
     body.form-locked #add-row-actions,
     body.form-locked #pad-field,
-    body.form-locked #chip-field,
     body.form-locked #encoding-help {
       display: none;
     }
-    body.form-locked .old {
+    body.form-locked .old,
+    body.form-locked #chip-locked {
       background: var(--bg);
       color: var(--muted);
+    }
+    #chip-locked { display: none; }
+    body.form-locked #chip { display: none; }
+    body.form-locked #chip-locked { display: block; }
+    body.form-locked .chip-override-hint {
+      display: none;
+    }
+    #last-file:empty,
+    #last-file[hidden] {
+      display: none !important;
     }
     body.lock-from-query #lock-form-label,
     body.lock-from-query #lock-hint,
@@ -195,6 +205,7 @@
   <h2>1. Firmware file</h2>
   <label for="file">Firmware <code>.bin</code> or <code>.bin.espbinpatch</code> from this computer</label>
   <input id="file" type="file" accept=".bin,.espbinpatch,.bin.espbinpatch">
+  <p id="last-file" class="muted" hidden></p>
   <p class="muted">
     Extensions <code>.bin</code> and <code>.bin.espbinpatch</code> are interchangeable.
     The extension suffix is only used to clarify that the image needs some replacements before being ussable.
@@ -225,9 +236,10 @@
 
   <h2>3. Patch firmware</h2>
   <div id="chip-field">
-    <p class="muted">Chip family must match the board you will flash. Detected from the image header; override if needed.</p>
-    <label for="chip">ESP Web Tools chip family</label>
+    <p class="muted">Chip family must match the board you will flash. Detected from the image header<span class="chip-override-hint">; override if needed</span>.</p>
+    <label for="chip" id="chip-label">ESP Web Tools chip family</label>
     <select id="chip"></select>
+    <input id="chip-locked" type="text" readonly autocomplete="off">
   </div>
 
   <div class="actions patch-actions">
@@ -297,7 +309,7 @@
     </label>
   </div>
   <p class="muted" id="lock-hint">
-    When <strong>Lock placeholders</strong> is on, recipients see Old as read-only; mode, pad, chip family, and add/remove are hidden.
+    When <strong>Lock placeholders</strong> is on, recipients see Old as read-only; mode, pad, and add/remove are hidden. Chip family stays visible and read-only.
   </p>
   <p class="muted">
     <strong>Warning:</strong> the backup link includes your replacements (Wi-Fi names, API keys, passwords).
@@ -341,7 +353,7 @@
      * Browser port of espbinpatch.py: in-place firmware replace + ESP-IDF checksum repair.
      */
 
-    const VERSION = "1.0.1";
+    const VERSION = "1.0.2";
 
     const IMAGE_MAGIC = 0xe9;
     const CHECKSUM_INIT = 0xef;
@@ -1187,6 +1199,8 @@
     const rowTemplate = document.getElementById("row-template");
     const padInput = document.getElementById("pad");
     const chipSelect = document.getElementById("chip");
+    const chipLocked = document.getElementById("chip-locked");
+    const chipLabel = document.getElementById("chip-label");
     const statusEl = document.getElementById("status");
     const resultEl = document.getElementById("result");
     const patchBtn = document.getElementById("patch");
@@ -1197,6 +1211,7 @@
 
     let originalBytes = null;
     let originalName = "firmware.bin";
+    let lastFilename = "";
     let firmwareInfo = null;
     let patchedBytes = null;
     let firmwareBlobUrl = null;
@@ -1208,7 +1223,18 @@
       option.textContent = family;
       chipSelect.appendChild(option);
     }
-    chipSelect.value = "ESP32-C6";
+    function syncChipLocked() {
+      chipLocked.value = chipSelect.value;
+    }
+
+    function setChipFamily(family) {
+      if (family && CHIP_FAMILIES.includes(family)) {
+        chipSelect.value = family;
+      }
+      syncChipLocked();
+    }
+
+    setChipFamily("ESP32-C6");
 
     function isFormLocked() {
       return document.getElementById("lock-form").checked;
@@ -1217,6 +1243,8 @@
     function setFormLocked(on) {
       document.getElementById("lock-form").checked = on;
       document.body.classList.toggle("form-locked", on);
+      chipLabel.htmlFor = on ? "chip-locked" : "chip";
+      syncChipLocked();
       for (const input of replacementsEl.querySelectorAll(".old")) {
         input.readOnly = on;
       }
@@ -1321,7 +1349,7 @@
       originalName = name || "firmware.bin";
       firmwareInfo = await describeFirmware(originalBytes);
       if (firmwareInfo.chipFamily) {
-        chipSelect.value = firmwareInfo.chipFamily;
+        setChipFamily(firmwareInfo.chipFamily);
       }
       if (firmwareInfo.appPartition) {
         document.getElementById("app-offset").value = firmwareInfo.appPartition.offset.toString(16);
@@ -1346,6 +1374,7 @@
         syncEraseAvailability();
         return;
       }
+      setLastFilename(file.name);
       try {
         const bytes = new Uint8Array(await file.arrayBuffer());
         await applyFirmwareBytes(bytes, file.name || "firmware.bin");
@@ -1560,7 +1589,10 @@
       enableInstall(patchedBytes, chipSelect.value);
     }
 
-    chipSelect.addEventListener("change", refreshInstall);
+    chipSelect.addEventListener("change", () => {
+      syncChipLocked();
+      refreshInstall();
+    });
     document.getElementById("app-offset").addEventListener("change", refreshInstall);
     for (const radio of document.querySelectorAll('input[name="flash-mode"]')) {
       radio.addEventListener("change", () => {
@@ -1597,12 +1629,32 @@
       }
     });
 
+    function filenameOnly(name) {
+      return String(name || "").split(/[/\\]/).pop().trim();
+    }
+
+    function setLastFilename(name) {
+      lastFilename = filenameOnly(name);
+      const wrap = document.getElementById("last-file");
+      if (!lastFilename) {
+        wrap.textContent = "";
+        wrap.hidden = true;
+        return;
+      }
+      const code = document.createElement("code");
+      code.id = "last-file-name";
+      code.textContent = lastFilename;
+      wrap.replaceChildren("Last chosen file was ", code, ".");
+      wrap.hidden = false;
+    }
+
     function buildShareLink() {
       const params = new URLSearchParams();
       params.set("chip", chipSelect.value);
       params.set("flash", flashMode());
       params.set("pad", padInput.value.trim() || "00");
       params.set("offset", document.getElementById("app-offset").value.trim() || "10000");
+      if (lastFilename) params.set("filename", lastFilename);
       if (isFormLocked()) params.set("lock", "1");
       let replacements = [];
       try {
@@ -1644,13 +1696,13 @@
       const flash = params.get("flash");
       const pad = params.get("pad");
       const offset = params.get("offset");
+      const filename = params.get("filename");
       const olds = params.getAll("old");
       const news = params.getAll("new");
       const encs = params.getAll("enc");
 
-      if (chip && CHIP_FAMILIES.includes(chip)) {
-        chipSelect.value = chip;
-      }
+      if (chip) setChipFamily(chip);
+      if (filenameOnly(filename)) setLastFilename(filename);
       if (flash === "keep" || flash === "erase") {
         const radio = document.querySelector(`input[name="flash-mode"][value="${flash}"]`);
         if (radio) radio.checked = true;
