@@ -37,6 +37,16 @@
       vertical-align: middle;
       white-space: nowrap;
     }
+    #project-hint {
+      margin: 0.15rem 0 0.9rem;
+      color: var(--fg);
+      font-size: 1.15rem;
+      font-weight: 600;
+      line-height: 1.3;
+    }
+    #project-hint[hidden] {
+      display: none !important;
+    }
     h2 { font-size: 1.15rem; margin: 1.75rem 0 0.6rem; }
     p.lead { color: var(--muted); margin-top: 0; }
     code, kbd { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.9em; }
@@ -82,6 +92,9 @@
     body.form-locked #chip-locked { display: block; }
     body.form-locked .chip-override-hint {
       display: none;
+    }
+    #add-detected[hidden] {
+      display: none !important;
     }
     #last-file:empty,
     #last-file[hidden] {
@@ -196,6 +209,7 @@
 </head>
 <body>
   <h1>ESP Bin Patch <span id="app-version" class="version"></span></h1>
+  <p id="project-hint" hidden></p>
   <p class="lead">
     Patch secrets and values in an already-built <code>.bin</code> or <code>.bin.espbinpatch</code>, repair ESP-IDF checksums,
     then install over USB with <strong>ESP Web Tools</strong>.
@@ -228,6 +242,7 @@
   <div id="replacements"></div>
   <div class="actions" id="add-row-actions">
     <button type="button" class="secondary" id="add-row">Add replacement</button>
+    <button type="button" class="secondary" id="add-detected" hidden>Add detected placeholders</button>
   </div>
   <div id="pad-field">
     <label for="pad">Pad byte (hex) for leftover space when new is shorter</label>
@@ -353,7 +368,7 @@
      * Browser port of espbinpatch.py: in-place firmware replace + ESP-IDF checksum repair.
      */
 
-    const VERSION = "1.0.2";
+    const VERSION = "1.1.0";
 
     const IMAGE_MAGIC = 0xe9;
     const CHECKSUM_INIT = 0xef;
@@ -429,6 +444,40 @@
         if (a[i] !== b[i]) return false;
       }
       return true;
+    }
+
+    const PLACEHOLDER_RE = /ESPBINPATCH_[A-Za-z0-9]+(?:_[A-Za-z0-9]+)*_*/g;
+
+    function findPlaceholders(data) {
+      const text = new TextDecoder("latin1").decode(data);
+      const found = [];
+      PLACEHOLDER_RE.lastIndex = 0;
+      let match;
+      while ((match = PLACEHOLDER_RE.exec(text)) !== null) {
+        found.push({ offset: match.index, token: match[0] });
+      }
+      return found;
+    }
+
+    function uniquePlaceholderTokens(data) {
+      const tokens = [];
+      const seen = new Set();
+      for (const { token } of findPlaceholders(data)) {
+        if (seen.has(token)) continue;
+        seen.add(token);
+        tokens.push(token);
+      }
+      return tokens;
+    }
+
+    function oldCoversPlaceholder(oldValue, token) {
+      if (!oldValue || !token) return false;
+      if (oldValue === token) return true;
+      try {
+        return encodeB64(decodeUtf8(token)) === oldValue;
+      } catch {
+        return false;
+      }
     }
 
     function findBytes(haystack, needle, start = 0) {
@@ -1185,6 +1234,57 @@
       assert(tooLong.encoding === "utf-8");
       assert(tooLong.newBytes.length > tooLong.oldBytes.length);
 
+      const wifiSsid = decodeUtf8("ESPBINPATCH_WIFI_SSID___________");
+      const wifiPassword = decodeUtf8(
+        "ESPBINPATCH_WIFI_PASSWORD______________________________________",
+      );
+      const otaPassword = decodeUtf8(
+        "ESPBINPATCH_OTA_PASSWORD________________________________________",
+      );
+      const concatParts = (parts) => {
+        const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
+        let o = 0;
+        for (const part of parts) {
+          out.set(part, o);
+          o += part.length;
+        }
+        return out;
+      };
+      const blob = concatParts([
+        new Uint8Array(8),
+        wifiSsid,
+        new Uint8Array([0x11, 0x11, 0x11, 0x11]),
+        wifiPassword,
+        decodeUtf8("noise ESPBINPATCH_ not-a-match"),
+        new Uint8Array([0]),
+        otaPassword,
+        new Uint8Array([0]),
+        placeholderRaw,
+        decodeUtf8("\x00ESPBINPATCH"),
+      ]);
+      const foundPlaceholders = findPlaceholders(blob);
+      assert(
+        foundPlaceholders.map((item) => item.token).join("\n") ===
+          [wifiSsid, wifiPassword, otaPassword, placeholderRaw]
+            .map((bytes) => new TextDecoder("latin1").decode(bytes))
+            .join("\n"),
+        "placeholder tokens",
+      );
+      assert(foundPlaceholders[0].offset === 8, "wifi ssid offset");
+      assert(findPlaceholders(decodeUtf8("ESPBINPATCH_")).length === 0);
+      assert(findPlaceholders(decodeUtf8("no placeholders here")).length === 0);
+      const noisy = findPlaceholders(decodeUtf8("ESPBINPATCH_WIFI_SSID___________noise"));
+      assert(noisy.length === 1 && noisy[0].offset === 0);
+      assert(noisy[0].token === "ESPBINPATCH_WIFI_SSID___________");
+      assert(
+        uniquePlaceholderTokens(concatParts([wifiSsid, wifiSsid])).join(",") ===
+          "ESPBINPATCH_WIFI_SSID___________",
+      );
+      assert(oldCoversPlaceholder(placeholderAscii, placeholderAscii));
+      assert(oldCoversPlaceholder(placeholderB64, placeholderAscii));
+      assert(!oldCoversPlaceholder("ESPBINPATCH_WIFI_SSID___________", placeholderAscii));
+      assert(!oldCoversPlaceholder("", placeholderAscii));
+
       const patched = await patchFirmware(await buildTestImage(payload), [
         { old: "HELLO-ESP-FIRMWARE-TEST!!", new: "WORLD-ESP-FIRMWARE-TEST!!", mode: "utf-8" },
       ]);
@@ -1212,6 +1312,8 @@
     let originalBytes = null;
     let originalName = "firmware.bin";
     let lastFilename = "";
+    let projectHint = "";
+    let detectedPlaceholders = [];
     let firmwareInfo = null;
     let patchedBytes = null;
     let firmwareBlobUrl = null;
@@ -1248,6 +1350,7 @@
       for (const input of replacementsEl.querySelectorAll(".old")) {
         input.readOnly = on;
       }
+      refreshDetectedPlaceholders();
     }
 
     function addRow(oldValue = "", newValue = "", mode = "auto") {
@@ -1261,14 +1364,85 @@
       row.querySelector(".remove").addEventListener("click", () => {
         if (replacementsEl.children.length === 1) return;
         row.remove();
+        syncAddDetectedButton();
       });
       replacementsEl.appendChild(node);
     }
 
     addRow();
 
+    function existingOldValues() {
+      return [...replacementsEl.querySelectorAll(".old")].map((input) => input.value);
+    }
+
+    function missingDetectedPlaceholders() {
+      const have = existingOldValues();
+      return detectedPlaceholders.filter(
+        (token) => !have.some((oldValue) => oldCoversPlaceholder(oldValue, token)),
+      );
+    }
+
+    function emptyReplacementRows() {
+      return [...replacementsEl.querySelectorAll(".row")].filter((row) => {
+        const oldValue = row.querySelector(".old").value;
+        const newValue = row.querySelector(".new").value;
+        return !oldValue && !newValue;
+      });
+    }
+
+    function syncAddDetectedButton() {
+      const button = document.getElementById("add-detected");
+      const missing = missingDetectedPlaceholders();
+      const offer =
+        !isFormLocked() &&
+        detectedPlaceholders.length > 0 &&
+        missing.length > 0;
+      button.hidden = !offer;
+      if (offer) {
+        const n = missing.length;
+        button.textContent =
+          n === 1 ? "Add 1 detected placeholder" : `Add ${n} detected placeholders`;
+      }
+    }
+
+    function refreshDetectedPlaceholders() {
+      if (!isFormLocked() && originalBytes) {
+        detectedPlaceholders = uniquePlaceholderTokens(originalBytes);
+      } else {
+        detectedPlaceholders = [];
+      }
+      syncAddDetectedButton();
+    }
+
+    function addDetectedPlaceholderRows() {
+      if (isFormLocked() || !detectedPlaceholders.length) return;
+      const missing = missingDetectedPlaceholders();
+      if (!missing.length) return;
+      const empties = emptyReplacementRows();
+      let emptyIndex = 0;
+      for (const token of missing) {
+        if (emptyIndex < empties.length) {
+          const row = empties[emptyIndex++];
+          row.querySelector(".old").value = token;
+          row.querySelector(".new").value = "";
+          row.querySelector(".mode").value = "auto";
+        } else {
+          addRow(token, "", "auto");
+        }
+      }
+      const n = missing.length;
+      showStatus("ok", n === 1 ? "Added 1 placeholder." : `Added ${n} placeholders.`);
+      syncAddDetectedButton();
+    }
+
     document.getElementById("app-version").textContent = VERSION;
     document.getElementById("add-row").addEventListener("click", () => addRow());
+    document.getElementById("add-detected").addEventListener("click", () => {
+      addDetectedPlaceholderRows();
+    });
+    replacementsEl.addEventListener("input", (event) => {
+      if (event.target.classList.contains("old")) syncAddDetectedButton();
+    });
     document.getElementById("lock-form").addEventListener("change", () => {
       setFormLocked(isFormLocked());
     });
@@ -1372,6 +1546,7 @@
       const file = fileInput.files[0];
       if (!file) {
         syncEraseAvailability();
+        refreshDetectedPlaceholders();
         return;
       }
       setLastFilename(file.name);
@@ -1383,6 +1558,7 @@
         syncEraseAvailability();
         showStatus("error", err.message || String(err));
       }
+      refreshDetectedPlaceholders();
     });
 
     function collectReplacements() {
@@ -1655,6 +1831,7 @@
       params.set("pad", padInput.value.trim() || "00");
       params.set("offset", document.getElementById("app-offset").value.trim() || "10000");
       if (lastFilename) params.set("filename", lastFilename);
+      if (projectHint) params.set("hint", projectHint);
       if (isFormLocked()) params.set("lock", "1");
       let replacements = [];
       try {
@@ -1690,6 +1867,19 @@
       }
     });
 
+    function setProjectHint(value) {
+      projectHint = value == null ? "" : String(value);
+      const el = document.getElementById("project-hint");
+      const text = projectHint.trim();
+      if (!text) {
+        el.textContent = "";
+        el.hidden = true;
+        return;
+      }
+      el.textContent = text;
+      el.hidden = false;
+    }
+
     function applyQueryParams() {
       const params = new URLSearchParams(location.search);
       const chip = params.get("chip");
@@ -1697,10 +1887,12 @@
       const pad = params.get("pad");
       const offset = params.get("offset");
       const filename = params.get("filename");
+      const hint = params.get("hint");
       const olds = params.getAll("old");
       const news = params.getAll("new");
       const encs = params.getAll("enc");
 
+      setProjectHint(hint);
       if (chip) setChipFamily(chip);
       if (filenameOnly(filename)) setLastFilename(filename);
       if (flash === "keep" || flash === "erase") {

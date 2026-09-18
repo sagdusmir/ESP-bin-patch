@@ -30,6 +30,7 @@ Focus: **patch secrets in an already-built `.bin`** (Wi-Fi SSID, sistant API enc
 - `--verify` only checks whether those fields already match
 - `--dry-run` shows what would be patched without writing a file
 - `--self-test` runs built-in integrity tests (no firmware file required)
+- `--find-placeholders` lists `ESPBINPATCH_<name>___` tokens as they appear in the firmware (name plus any trailing underscores)
 
 Python 3, **stdlib only** — no pip packages.
 
@@ -52,6 +53,7 @@ Use **exactly one** old/new pair. After decoding, every pair does the same byte 
 python3 espbinpatch.py --self-test
 python3 espbinpatch.py --help
 python3 espbinpatch.py firmware.bin --verify
+python3 espbinpatch.py firmware.bin --find-placeholders
 ```
 
 Pass `-o OUTPUT` or `--in-place` to write. `--dry-run` prints hits and repairs without writing.
@@ -65,6 +67,7 @@ Check out [`https://sagdusmir.github.io/ESP-bin-patch/`](https://sagdusmir.githu
 - Runs in the browser only — the `.bin` is never uploaded to a server
 - Requires Chrome or Edge browser
 - Several replacements, each with mode **auto / utf-8 / hex / base64**
+- After you pick a firmware file (unlocked form), **Add N detected placeholders** inserts missing `ESPBINPATCH_<name>___` tokens (empty rows are filled first). Existing filled rows are left unchanged, including Old that is already the token or its Base64. Hidden when `lock=1` or nothing is missing.
 - Errors (missing needle, invalid hex/base64, replacement too long, …) are shown on the page
 - "**Keep saved settings**" writes only the program (app partition), so Wi-Fi and other saved values stay. "**Erase everything**" writes a merged factory image from the start of flash.
 
@@ -79,14 +82,17 @@ Pass query parameters so a README can open the demo already filled in. Choose th
 | `pad` | pad byte (`00`) |
 | `offset` | app offset hex (`10000`); keep-settings only |
 | `filename` | last used firmware filename (shown under the picker; still choose the file locally) |
+| `hint` | text under the title naming the ESP project these placeholders are for. **Copy backup link** keeps it if present; it does not invent one |
 | `old`, `new`, `enc` | one replacement; repeat the trio for more (`enc`: `auto`, `utf-8`, `hex`, `base64`) |
 | `lock` | `1` simplified recipient form (Old read-only; mode, pad, add/remove hidden; chip family visible and read-only) |
 
 Example:
 
 ```
-https://sagdusmir.github.io/ESP-bin-patch/?chip=ESP32-C6&flash=erase&old=PLACEHOLDER_KEY&new=YOUR_KEY&enc=auto
+https://sagdusmir.github.io/ESP-bin-patch/?hint=G32%20mini%20BT%20display&chip=ESP32-C6&flash=erase&old=PLACEHOLDER_KEY&new=YOUR_KEY&enc=auto
 ```
+
+`hint` is for README / project links so recipients can see which firmware the placeholders belong to. **Copy backup link** keeps an existing `hint` as-is and does not add one if the page had none.
 
 The page has "**Copy backup link**" that copies a link with all current values to your clipboard for later use. Check "**Lock placeholders**" to add `lock=1` so the link will open the tool width simplified options to mess with (Old is visible but not editable; the lock checkbox is hidden for them, chip is visible and read-only, pad is hidden…). Copying the link from a `lock=1` page keeps `lock=1`. That link includes replacement values (Wi-Fi names, API keys, passwords) — do not publish it unless those secrets are meant to be public.
 

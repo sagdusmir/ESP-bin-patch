@@ -36,19 +36,24 @@ Examples::
       --old 'very_long_ssid_name' --new 'short' -o patched.bin
 
   python3 espbinpatch.py firmware.factory.bin --verify
+
+  python3 espbinpatch.py firmware.bin --find-placeholders
 """
 
 import argparse
 import base64
 import binascii
 import hashlib
+import re
 import struct
 import sys
 import tempfile
+from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import dataclass
+from io import StringIO
 from pathlib import Path
 
-__version__ = "1.0.2"
+__version__ = "1.1.0"
 
 IMAGE_MAGIC = 0xE9
 CHECKSUM_INIT = 0xEF
@@ -65,6 +70,9 @@ PARTITION_TYPE_APP = 0x00
 
 # Common places a bootloader image can start.
 BOOTLOADER_CANDIDATES = (0x0, 0x1000)
+
+# ASCII tokens like ESPBINPATCH_WIFI_SSID___________ (name, then pad underscores).
+PLACEHOLDER_RE = re.compile(rb"ESPBINPATCH_[A-Za-z0-9]+(?:_[A-Za-z0-9]+)*_*")
 
 
 @dataclass(frozen=True)
@@ -296,6 +304,11 @@ def replace_bytes(buf: bytearray, old: bytes, new: bytes, *, pad: int = 0x00) ->
         hits.append(index)
         start = index + len(old)
     return hits
+
+
+def find_placeholders(data: bytes) -> list[tuple[int, bytes]]:
+    """Return ``(offset, exact token)`` for each ``ESPBINPATCH_<name>_…`` in *data*."""
+    return [(match.start(), match.group()) for match in PLACEHOLDER_RE.finditer(data)]
 
 
 def format_image(image: EspImage, data: bytes) -> str:
@@ -637,6 +650,41 @@ def run_self_test() -> int:
     assert repl.encoding == "utf-8"
     assert repl.old == ssid.encode("utf-8")
 
+    wifi_ssid = b"ESPBINPATCH_WIFI_SSID___________"
+    wifi_password = b"ESPBINPATCH_WIFI_PASSWORD______________________________________"
+    ota_password = b"ESPBINPATCH_OTA_PASSWORD________________________________________"
+    api_key = placeholder_raw
+    blob = (
+        b"\x00" * 8
+        + wifi_ssid
+        + b"\x11" * 4
+        + wifi_password
+        + b"noise ESPBINPATCH_ not-a-match"
+        + b"\x00"
+        + ota_password
+        + b"\x00"
+        + api_key
+        + b"\x00ESPBINPATCH"
+    )
+    found = find_placeholders(blob)
+    assert [token for _offset, token in found] == [
+        wifi_ssid,
+        wifi_password,
+        ota_password,
+        api_key,
+    ], found
+    assert [offset for offset, _token in found] == [
+        blob.find(wifi_ssid),
+        blob.find(wifi_password),
+        blob.find(ota_password),
+        blob.find(api_key),
+    ]
+    assert find_placeholders(b"ESPBINPATCH_") == []
+    assert find_placeholders(b"no placeholders here") == []
+    assert find_placeholders(b"ESPBINPATCH_WIFI_SSID___________noise") == [
+        (0, wifi_ssid)
+    ]
+
     auto_payload = b"\x00" * 16 + key_raw + ssid.encode("utf-8") + b"\xff" * 16
     image_bytes = build_test_image(auto_payload)
     ha_image = build_test_image(ha_payload)
@@ -655,6 +703,21 @@ def run_self_test() -> int:
         assert main(
             [str(tmp), "--old-auto", placeholder_b64, "--new-auto", ha_new_b64, "--dry-run"]
         ) == 0
+        tmp.write_bytes(blob)
+        stdout = StringIO()
+        with redirect_stdout(stdout):
+            assert main([str(tmp), "--find-placeholders"]) == 0
+        assert stdout.getvalue().splitlines() == [
+            wifi_ssid.decode("ascii"),
+            wifi_password.decode("ascii"),
+            ota_password.decode("ascii"),
+            api_key.decode("ascii"),
+        ]
+        tmp.write_bytes(b"no ESPBINPATCH tokens")
+        stderr = StringIO()
+        with redirect_stdout(StringIO()), redirect_stderr(stderr):
+            assert main([str(tmp), "--find-placeholders"]) == 1
+        assert "no ESPBINPATCH placeholders found" in stderr.getvalue()
     finally:
         tmp.unlink(missing_ok=True)
 
@@ -723,6 +786,14 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         help="Show what would be replaced; do not write a file",
     )
     parser.add_argument("--self-test", action="store_true", help="Run built-in integrity tests")
+    parser.add_argument(
+        "--find-placeholders",
+        action="store_true",
+        help=(
+            "List ESPBINPATCH_<name> tokens (name plus any trailing underscores) "
+            "as they appear in the firmware; do not patch"
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -765,6 +836,15 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     data = bytearray(args.firmware.read_bytes())
+    if args.find_placeholders:
+        found = find_placeholders(data)
+        if not found:
+            print("no ESPBINPATCH placeholders found", file=sys.stderr)
+            return 1
+        for _offset, token in found:
+            print(token.decode("ascii"))
+        return 0
+
     images = find_images(data)
     if not images:
         print("no ESP-IDF images found (not an ESPHome .bin?)", file=sys.stderr)
