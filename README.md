@@ -87,7 +87,7 @@ Example:
 https://sagdusmir.github.io/ESP-bin-patch/?chip=ESP32-C6&flash=erase&old=PLACEHOLDER_KEY&new=YOUR_KEY&enc=auto
 ```
 
-The page has **Copy share link** to build this from the current form. Check **Lock placeholders** to add `lock=1` so recipients get a simpler form (Old is visible but not editable; the lock checkbox is hidden for them). Copying the link from a `lock=1` page keeps `lock=1`. That link includes replacement values (Wi-Fi names, API keys, passwords) — do not publish it unless those secrets are meant to be public.
+The page has **Copy backup link** to build this from the current form. Check **Lock placeholders** to add `lock=1` so recipients get a simpler form (Old is visible but not editable; the lock checkbox is hidden for them). Copying the link from a `lock=1` page keeps `lock=1`. That link includes replacement values (Wi-Fi names, API keys, passwords) — do not publish it unless those secrets are meant to be public.
 
 Locally:
 
