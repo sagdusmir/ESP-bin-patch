@@ -60,7 +60,7 @@ When `--new` is shorter than `--old`, leftover bytes are padded. `--pad` is a he
 
 ## Web demo
 
-Check out [`[docs/index.html](https://sagdusmir.github.io/ESP-bin-patch/)`](https://sagdusmir.github.io/ESP-bin-patch/). This is a static page (with a JavaScript port of the patcher) that also allows **installing the patched image over USB**  using ESP Web Tools.
+Check out [`https://sagdusmir.github.io/ESP-bin-patch/`](https://sagdusmir.github.io/ESP-bin-patch/). This is a static page (with a JavaScript port of the patcher) that also allows **installing the patched image over USB**  using ESP Web Tools.
 
 - Runs in the browser only — the `.bin` is never uploaded to a server
 - Requires Chrome or Edge browser
