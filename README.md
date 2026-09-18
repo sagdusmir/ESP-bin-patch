@@ -7,7 +7,7 @@
 `espbinpatch` replaces bytes in a compiled ESPHome / ESP-IDF firmware image and repairs the XOR checksum and SHA-256 so the device will still boot.
 
 
-Focus: **patch secrets in an already-built `.bin`** (Wi-Fi SSID, Home Assistant API encryption key, …) without shifting offsets or leaving a checksum that the ROM bootloader will reject. However, there are some limitations.
+Focus: **patch secrets in an already-built `.bin`** (Wi-Fi SSID, sistant API encryption key, …) without shifting offsets or leaving a checksum that the ROM bootloader will reject. However, there are some limitations.
 
 
 # Table of Contents
@@ -45,25 +45,6 @@ Use **exactly one** old/new pair. After decoding, every pair does the same byte 
 | `--old-auto` / `--new-auto` | UTF-8 **or** decoded Base64 — whichever needle actually exists |
 
 `--old-auto` does **not** try hex. Short hex sequences appear constantly in firmware, so an SSID or OTA password that happens to be hex digits would collide or patch the wrong span. Use `--old-hex` when you mean hex.
-
-### Home Assistant API key
-
-ESPHome's `api.encryption.key` is a Base64 string in YAML / Home Assistant. The compiled image stores the **decoded 32 raw bytes**, not that 44-character ASCII string.
-
-`--old-auto` looks for the UTF-8 bytes of Old **or** the decoded Base64 bytes, whichever unique needle exists. `--new-auto` uses that same encoding when the replacement fits. If New is **too long** in that encoding, auto tries the other encoding when it is valid and fits.
-
-That is why either of these works as Old when New is your Home Assistant key:
-
-| Old | What is in the `.bin` |
-|---|---|
-| `ESPBINPATCH_API_ENCRYPTION_KEY__` | the 32 ASCII bytes (typical release placeholder) |
-| `RVNQQklOUEFUQ0hfQVBJX0VOQ1JZUFRJT05fS0VZX18=` | YAML / `secrets.yaml` Base64 of those same 32 bytes |
-
-- `--old 'YcM9…ugZA='` looks for the **text** of the key (usually a miss)
-- `--old-b64 'YcM9…ugZA='` looks for the **32-byte key**
-- `--old-auto 'YcM9…ugZA='` tries both and uses the unique hit
-
-If both representations are present, the script exits and tells you to pass `--old` or `--old-b64` explicitly. Invalid `--new-auto` Base64 still errors when Old matched as Base64.
 
 ## Usage
 
@@ -118,7 +99,7 @@ Then open `http://localhost:8000/index.html` and use **Run self-test**.
 
 ## Examples
 
-Home Assistant API key — Old may be the 32-byte placeholder **or** its Base64. New is the Home Assistant / ESPHome key:
+sistant API key — Old may be the 32-byte placeholder **or** its Base64. New is the sistant / ESPHome key:
 
 ```bash
 python3 espbinpatch.py firmware.factory.bin \
@@ -170,11 +151,11 @@ python3 espbinpatch.py firmware.factory.bin --verify
 - `--new-auto` uses Old's encoding when the replacement fits. If that New is too long, auto tries the other encoding when it is valid and fits
 - If the UTF-8 form **and** the decoded Base64 form both exist in the file, `--old-auto` refuses to guess
 - The needle is searched in the **whole file**, not only inside ESP-IDF image payloads
-- Patching the wrong span, or changing an API key without updating Home Assistant, will leave a device that boots but cannot connect — or one that does not boot at all
+- Patching the wrong span, or changing an API key without updating sistant, will leave a device that boots but cannot connect — or one that does not boot at all
 
 ## Disclaimer
 
-This is third-party tooling. It is not affiliated with Espressif, ESPHome, or Home Assistant. Use at your own risk.
+This is third-party tooling. It is not affiliated with Espressif, ESPHome, or sistant. Use at your own risk.
 
 __This project is provided for educational and experimental purposes only.__
 
