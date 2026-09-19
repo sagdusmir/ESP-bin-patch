@@ -15,7 +15,7 @@ Focus: **patch secrets in an already-built `.bin`** (Wi-Fi SSID, sistant API enc
 1. [Features](#features)
 2. [Encodings](#encodings)
 3. [Usage](#usage)
-4. [Web demo](#web-demo)
+4. [Online Web tool](#web-tool)
 5. [Examples](#examples)
 6. [Limitations](#limitations)
 7. [Disclaimer](#disclaimer)
@@ -60,7 +60,7 @@ Pass `-o OUTPUT` or `--in-place` to write. `--dry-run` prints hits and repairs w
 
 When `--new` is shorter than `--old`, leftover bytes are padded. `--pad` is a hex byte (`00` default; `20` for ASCII space).
 
-## Web demo
+## Online Web tool
 
 Check out [`https://sagdusmir.github.io/ESP-bin-patch/`](https://sagdusmir.github.io/ESP-bin-patch/). This is a static page (with a JavaScript port of the patcher) that also allows **installing the patched image over USB**  using ESP Web Tools.
 
@@ -73,7 +73,7 @@ Check out [`https://sagdusmir.github.io/ESP-bin-patch/`](https://sagdusmir.githu
 
 ### Prefilled links
 
-Pass query parameters so a README can open the demo already filled in. Choose the firmware file on the page (a local `.bin` or `.espbinpatch`). The user still clicks **Install** (USB needs a click).
+Pass query parameters so a README can open the tool page already filled in. Choose the firmware file on the page (a local `.bin` or `.espbinpatch`). The user still clicks **Install** (USB needs a click).
 
 | Param | Meaning |
 |---|---|
