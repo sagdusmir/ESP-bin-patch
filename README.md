@@ -15,7 +15,7 @@ Focus: **patch secrets in an already-built `.bin`** (Wi-Fi SSID, sistant API enc
 1. [Features](#features)
 2. [Encodings](#encodings)
 3. [Usage](#usage)
-4. [Online Web tool](#web-tool)
+4. [Online Web tool](#online-web-tool)
 5. [Examples](#examples)
 6. [Limitations](#limitations)
 7. [Disclaimer](#disclaimer)
