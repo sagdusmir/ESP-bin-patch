@@ -4,6 +4,8 @@
 [![GitHub commit activity (branch)](https://img.shields.io/github/commit-activity/t/sagdusmir/ESP-bin-patch/main?style=flat-square&logo=github&color=blue)](https://github.com/sagdusmir/ESP-bin-patch/commits/main/)
 ![GitHub license](https://img.shields.io/github/license/sagdusmir/ESP-bin-patch?style=flat-square&logo=gnu&color=green&ts=5)
 
+Rationale and motivation: In most ESPHome projects there are a few settings a user might need to tweak (API keys, encryption keys, credentials, Wi-Fi SSID, and so on). Changing those settings normally requires the user to have all the required software installed and up to date so they can compile the project. This tool lets you compile the firmware only once (for example in a GitHub workflow) and lets users apply their own customizations themselves. With ESP Web Tools, they can even flash the firmware to their devices without installing any software on their side.
+
 `espbinpatch` replaces bytes in a compiled ESPHome / ESP-IDF firmware image and repairs the XOR checksum and SHA-256 so the device will still boot.
 
 
