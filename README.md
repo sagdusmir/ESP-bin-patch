@@ -32,7 +32,7 @@ Focus: **patch secrets in an already-built `.bin`** (Wi-Fi SSID, sistant API enc
 - `--verify` only checks whether those fields already match
 - `--dry-run` shows what would be patched without writing a file
 - `--self-test` runs built-in integrity tests (no firmware file required)
-- `--find-placeholders` lists `ESPBINPATCH_<name>___` tokens as they appear in the firmware (name plus any trailing underscores)
+- `--find-placeholders` lists `ESPBINPATCH_<name>` tokens as they appear in the firmware. A name is required (`ESPBINPATCH_` alone is not a token). Trailing pad underscores are optional; when present they are included in the token (for example `ESPBINPATCH_WIFI_SSID___________`). Those underscores set the needle's maximum length, because a replacement cannot be longer than Old.
 
 Python 3, **stdlib only** — no pip packages.
 
@@ -69,7 +69,7 @@ Check out [`https://sagdusmir.github.io/ESP-bin-patch/`](https://sagdusmir.githu
 - Runs in the browser only — the `.bin` is never uploaded to a server
 - Requires Chrome or Edge browser
 - Several replacements, each with mode **auto / utf-8 / hex / base64**
-- After you pick a firmware file (unlocked form), **Add N detected placeholders** inserts missing `ESPBINPATCH_<name>___` tokens (empty rows are filled first). Existing filled rows are left unchanged, including Old that is already the token or its Base64. Hidden when `lock=1` or nothing is missing.
+- After you pick a firmware file (unlocked form), **Add N detected placeholders** inserts missing `ESPBINPATCH_<name>` tokens (empty rows are filled first). Trailing pad underscores are optional and included if present; they set the needle's maximum length. Existing filled rows are left unchanged, including Old that is already the token or its Base64. Hidden when `lock=1` or nothing is missing.
 - Errors (missing needle, invalid hex/base64, replacement too long, …) are shown on the page
 - "**Keep saved settings**" writes only the program (app partition), so Wi-Fi and other saved values stay. "**Erase everything**" writes a merged factory image from the start of flash.
 
@@ -108,7 +108,7 @@ Then open `http://localhost:8000/index.html` and use **Run self-test**.
 
 ## Examples
 
-sistant API key — Old may be the 32-byte placeholder **or** its Base64. New is the sistant / ESPHome key:
+sistant API key — Old may be the 32-byte placeholder **or** its Base64. New is the sistant / ESPHome key. The trailing underscores on `ESPBINPATCH_API_ENCRYPTION_KEY__` set that ASCII needle's maximum length to 32 bytes; they are not required for detection:
 
 ```bash
 python3 espbinpatch.py firmware.factory.bin \

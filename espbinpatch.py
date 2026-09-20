@@ -71,7 +71,7 @@ PARTITION_TYPE_APP = 0x00
 # Common places a bootloader image can start.
 BOOTLOADER_CANDIDATES = (0x0, 0x1000)
 
-# ASCII tokens like ESPBINPATCH_WIFI_SSID___________ (name, then pad underscores).
+# ASCII tokens like ESPBINPATCH_WIFI_SSID___________ (name, then optional pad underscores that set the needle's max length).
 PLACEHOLDER_RE = re.compile(rb"ESPBINPATCH_[A-Za-z0-9]+(?:_[A-Za-z0-9]+)*_*")
 
 
@@ -307,7 +307,11 @@ def replace_bytes(buf: bytearray, old: bytes, new: bytes, *, pad: int = 0x00) ->
 
 
 def find_placeholders(data: bytes) -> list[tuple[int, bytes]]:
-    """Return ``(offset, exact token)`` for each ``ESPBINPATCH_<name>_…`` in *data*."""
+    """Return ``(offset, exact token)`` for each ``ESPBINPATCH_<name>`` in *data*.
+
+    A name is required; trailing pad underscores are optional and included when
+    present. They set the needle's maximum length (a replacement cannot be longer).
+    """
     return [(match.start(), match.group()) for match in PLACEHOLDER_RE.finditer(data)]
 
 
@@ -790,8 +794,9 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         "--find-placeholders",
         action="store_true",
         help=(
-            "List ESPBINPATCH_<name> tokens (name plus any trailing underscores) "
-            "as they appear in the firmware; do not patch"
+            "List ESPBINPATCH_<name> tokens as they appear in the firmware "
+            "(trailing pad underscores optional, included if present, set the "
+            "needle's max length); do not patch"
         ),
     )
     return parser.parse_args(argv)
