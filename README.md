@@ -9,7 +9,7 @@ Rationale and motivation: In most ESPHome projects there are a few settings a us
 `espbinpatch` replaces bytes in a compiled ESPHome / ESP-IDF firmware image and repairs the XOR checksum and SHA-256 so the device will still boot.
 
 
-Focus: **patch secrets in an already-built `.bin`** (Wi-Fi SSID, sistant API encryption key, …) without shifting offsets or leaving a checksum that the ROM bootloader will reject. However, there are some limitations.
+TL;DR: **patch secrets in an already-built `.bin`** (Wi-Fi SSID, sistant API encryption key, …) without shifting offsets or leaving a checksum that the ROM bootloader will reject. However, there are some limitations.
 
 
 # Table of Contents
