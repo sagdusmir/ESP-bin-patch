@@ -75,7 +75,7 @@ Check out [`https://sagdusmir.github.io/ESP-bin-patch/`](https://sagdusmir.githu
 
 ### Prefilled links
 
-Pass query parameters so a README can open the tool page already filled in. Choose the firmware file on the page (a local `.bin` or `.espbinpatch`). The user still clicks **Install** (USB needs a click).
+Pass query parameters so you can prepare a URL to open the tool page already filled in. Choose the firmware file on the page (a local `.bin` or `.espbinpatch`). The user still clicks **Patch** and **Install** (USB needs a click).
 
 | Param | Meaning |
 |---|---|
@@ -94,7 +94,7 @@ Example:
 https://sagdusmir.github.io/ESP-bin-patch/?hint=G32%20mini%20BT%20display&chip=ESP32-C6&flash=erase&old=PLACEHOLDER_KEY&new=YOUR_KEY&enc=auto
 ```
 
-`hint` is for README / project links so recipients can see which firmware the placeholders belong to. **Copy backup link** keeps an existing `hint` as-is and does not add one if the page had none.
+`hint` is for adding a note so recipients can see which firmware the placeholders belong to.
 
 The page has "**Copy backup link**" that copies a link with all current values to your clipboard for later use. Check "**Lock placeholders**" to add `lock=1` so the link will open the tool width simplified options to mess with (Old is visible but not editable; the lock checkbox is hidden for them, chip is visible and read-only, pad is hidden…). Copying the link from a `lock=1` page keeps `lock=1`. That link includes replacement values (Wi-Fi names, API keys, passwords) — do not publish it unless those secrets are meant to be public.
 
