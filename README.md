@@ -1,4 +1,4 @@
-# ESP Bin Patch
+# ESP Bin Patcher
 [![GitHub release](https://img.shields.io/github/v/release/sagdusmir/ESP-bin-patch?style=flat-square&logo=github&color=blue)](https://github.com/sagdusmir/ESP-bin-patch/releases/latest)
 [![GitHub Release Date](https://img.shields.io/github/release-date/sagdusmir/ESP-bin-patch?style=flat-square&logo=github&color=blue)](https://github.com/sagdusmir/ESP-bin-patch/releases)
 [![GitHub commit activity (branch)](https://img.shields.io/github/commit-activity/t/sagdusmir/ESP-bin-patch/main?style=flat-square&logo=github&color=blue)](https://github.com/sagdusmir/ESP-bin-patch/commits/main/)
