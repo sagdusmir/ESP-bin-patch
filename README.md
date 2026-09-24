@@ -1,8 +1,8 @@
 # ESP Bin Patcher
-[![GitHub release](https://img.shields.io/github/v/release/sagdusmir/ESP-bin-patch?style=flat-square&logo=github&color=blue)](https://github.com/sagdusmir/ESP-bin-patch/releases/latest)
-[![GitHub Release Date](https://img.shields.io/github/release-date/sagdusmir/ESP-bin-patch?style=flat-square&logo=github&color=blue)](https://github.com/sagdusmir/ESP-bin-patch/releases)
-[![GitHub commit activity (branch)](https://img.shields.io/github/commit-activity/t/sagdusmir/ESP-bin-patch/main?style=flat-square&logo=github&color=blue)](https://github.com/sagdusmir/ESP-bin-patch/commits/main/)
-![GitHub license](https://img.shields.io/github/license/sagdusmir/ESP-bin-patch?style=flat-square&logo=gnu&color=green&ts=5)
+[![GitHub release](https://img.shields.io/github/v/release/sagdusmir/ESP-bin-patcher?style=flat-square&logo=github&color=blue)](https://github.com/sagdusmir/ESP-bin-patcher/releases/latest)
+[![GitHub Release Date](https://img.shields.io/github/release-date/sagdusmir/ESP-bin-patcher?style=flat-square&logo=github&color=blue)](https://github.com/sagdusmir/ESP-bin-patcher/releases)
+[![GitHub commit activity (branch)](https://img.shields.io/github/commit-activity/t/sagdusmir/ESP-bin-patcher/main?style=flat-square&logo=github&color=blue)](https://github.com/sagdusmir/ESP-bin-patcher/commits/main/)
+![GitHub license](https://img.shields.io/github/license/sagdusmir/ESP-bin-patcher?style=flat-square&logo=gnu&color=green&ts=5)
 
 Rationale and motivation: In most ESPHome projects there are a few settings a user might need to tweak (API keys, encryption keys, credentials, Wi-Fi SSID, and so on). Changing those settings normally requires the user to have all the required software installed and up to date so they can compile the project. This tool lets you compile the firmware only once (for example in a GitHub workflow) and lets users apply their own customizations themselves. With ESP Web Tools, they can even flash the firmware to their devices without installing any software on their side.
 
@@ -91,7 +91,7 @@ Pass query parameters so you can prepare a URL to open the tool page already fil
 Example:
 
 ```
-https://sagdusmir.github.io/ESP-bin-patch/?hint=G32%20mini%20BT%20display&chip=ESP32-C6&flash=erase&old=PLACEHOLDER_KEY&new=YOUR_KEY&enc=auto
+https://sagdusmir.github.io/ESP-bin-patcher/?hint=G32%20mini%20BT%20display&chip=ESP32-C6&flash=erase&old=PLACEHOLDER_KEY&new=YOUR_KEY&enc=auto
 ```
 
 `hint` is for adding a note so recipients can see which firmware the placeholders belong to.
